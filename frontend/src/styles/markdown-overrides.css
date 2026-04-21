@@ -1,0 +1,27 @@
+/*
+ * Global md-editor-v3 overrides.
+ *
+ * Applies to every MdEditor (admin edit pane) and MdPreview (student view,
+ * modal preview) instance in the app. Kept global — not scoped — so the
+ * rules reach into the editor's split-view preview pane which can dodge
+ * `:deep()` selectors depending on component-root heuristics.
+ *
+ * - Hide the per-code-block header strip (macOS-style red/yellow/green
+ *   dots + copy button + language label). Sample inputs / outputs in this
+ *   project use fenced code blocks but aren't program code, so the
+ *   terminal-style header misleads students into thinking the block is
+ *   executable.
+ * - Neutralise any residual hljs diff coloring that might slip past
+ *   main.ts's empty-lang highlight interceptor, so "-5 7" never renders
+ *   red again.
+ */
+
+.md-editor-code-head {
+  display: none !important;
+}
+
+.hljs-deletion,
+.hljs-addition {
+  background: transparent !important;
+  color: inherit !important;
+}

@@ -1,0 +1,25 @@
+# dependencies / build artifacts
+node_modules/
+frontend/dist/
+/dist/
+
+# runtime data
+data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# local config
+.env
+.env.local
+
+# binary
+/liteoj
+/liteoj.exe
+
+# editors
+.vscode/
+.idea/
+.DS_Store
+*.swp

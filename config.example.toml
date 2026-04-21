@@ -1,0 +1,70 @@
+[app]
+port = "8080"
+mode = "dev"
+
+[db]
+# driver: "sqlite" | "postgres"
+driver = "sqlite"
+dsn = "./data/liteoj.db"
+# postgres 示例：
+# driver = "postgres"
+# dsn = "host=127.0.0.1 user=liteoj password=liteoj dbname=liteoj port=5432 sslmode=disable TimeZone=Asia/Shanghai"
+
+[jwt]
+secret = "change-me-in-production"
+ttl_hours = 24
+
+# 首次启动建初始管理员（之后从数据库读，修改此处无效，请改用户管理页）
+[admin_init]
+username = "admin"
+password = "admin123"
+name = "超级管理员"
+
+[judge]
+base_url = "http://127.0.0.1:5050"
+langs = ["c", "cpp", "java", "python", "go"]
+default_cpu_ms = 1000
+default_mem_mb = 256
+queue_workers = 1   # 单 worker 可避免 SQLite 并发写抖动
+queue_cap = 256
+
+[ai]
+enabled = false
+bifrost_base_url = ""
+bifrost_api_key = ""
+bifrost_model = "claude-sonnet-4-6"
+# 单次 AI 调用最长等待秒数；覆盖所有 kind（analyze / optimize / tag / gen_*）。
+# 默认 180；慢推理模型（DeepSeek-V3 / R1 等）建议调到 600 ~ 1200。
+max_wait_seconds = 180
+# 学生端：错题分析
+prompt_wrong_answer = "你是 OJ 平台的答疑助手。请分析下面的代码、题目与判题结果，指出错误原因并给出修正方向。用 Markdown 回答，必要时给出代码片段。"
+# 学生端：AC 代码的优化建议（不走"乱写判定"，直接返回 Markdown 建议）
+prompt_optimize = "你是 OJ 平台的代码评审助手。学生的代码已通过所有测试用例，请针对可读性 / 时间与空间复杂度 / 常数优化 / 写法习惯给出建议。用 Markdown 回答，必要时给出修改后的代码片段。"
+# 管理端标签：输入是「详细」原文 + 标签字典
+prompt_tag = "你是 OJ 题目标签助手。可选标签仅限用户消息「可选一级标签与二级标签字典」中列出的条目，一级（group）与二级（tag）必须逐字复制，包括空格、全/半角括号、大小写、中英文与符号（例：'字符串（入门）' 不要写成 '字符串(入门)'；'A* 算法' 不要写成 'A 星算法'）。禁止翻译、改写、合并同义词、新增字典外的标签。选 1~5 个最贴切的二级标签，同一 group 下可多选；若不确定宁缺毋滥。严格只输出 JSON：{\"tags\":[{\"group\":\"一级\",\"tag\":\"二级\"}]}，不要任何其他文字、解释、前后缀或 Markdown 代码块。"
+
+# 管理端题目生成：全部以「详细」粘贴区为输入源。
+# 以下提示词都应在自己的文本里约束格式 / 节点（一二级标题）/ 风格，
+# 代码不做任何默认值，留空或不填会直接报错。
+
+# 生成标题：要求一行、不加标点、与原文主题一致。
+prompt_gen_title = ""
+
+# 生成题目描述（含输入格式 / 输出格式 / 样例 / 说明提示，全部作为同一段 Markdown）：
+# 固定节点顺序：## 题目背景? → ## 题目描述 → ## 输入格式 → ## 输出格式 → ## 样例 → ## 说明 / 提示?
+# 样例用 ### 样例输入 k / ### 样例输出 k 三级小节分组，内容包 fenced code block
+prompt_gen_desc = ""
+
+# 生成解题思路：只说思路、不写代码，短小（建议 200~400 字），建议使用 H2 小节
+prompt_gen_idea = ""
+
+# 生成完整解析：思路 + 参考实现 + 易错点，Markdown + LaTeX
+prompt_gen_explain = ""
+
+# 一键填充：单次调用返回所有字段。
+# 严格 JSON：{"title","description","solution_idea_md","solution_md"}
+# description 内部包含输入格式 / 输出格式 / 样例等所有小节（见 prompt_gen_desc 的节点约定）
+prompt_gen_all = ""
+
+[upload]
+dir = "./data/uploads"

@@ -1,0 +1,39 @@
+{
+  "name": "liteoj-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@guolao/vue-monaco-editor": "^1.5.4",
+    "axios": "^1.7.2",
+    "echarts": "^5.5.0",
+    "highlight.js": "^11.9.0",
+    "markdown-it": "^14.1.0",
+    "markdown-it-katex": "^2.0.3",
+    "md-editor-v3": "^6.4.2",
+    "monaco-editor": "^0.50.0",
+    "naive-ui": "^2.38.2",
+    "pinia": "^2.1.7",
+    "sortablejs": "^1.15.7",
+    "vue": "^3.4.27",
+    "vue-echarts": "^7.0.3",
+    "vue-router": "^4.3.2"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.1",
+    "@types/sortablejs": "^1.15.9",
+    "@unocss/preset-wind": "^0.60.4",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "katex": "^0.16.10",
+    "typescript": "^5.4.5",
+    "unocss": "^0.60.4",
+    "vite": "^5.2.11",
+    "vue-tsc": "^2.0.19"
+  },
+  "packageManager": "pnpm@9.4.0"
+}

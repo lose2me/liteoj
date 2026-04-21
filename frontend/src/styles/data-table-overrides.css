@@ -1,0 +1,8 @@
+/* 所有 NDataTable 单元格强制单行。超宽内容由 Naive UI 的横向滚动接管。
+ * 对应「前台 / 后台所有列表的文本单元永不换行」的产品约定 —— 中文短列
+ * 在窄列宽下被挤成竖排的问题全由此处兜底。
+ */
+.n-data-table .n-data-table-td,
+.n-data-table .n-data-table-th__title {
+  white-space: nowrap;
+}
