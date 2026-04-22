@@ -43,6 +43,8 @@ export const zh = {
     adminConsole: '管理后台',
     login: '登录',
     logout: '登出',
+    themeLight: '亮色',
+    themeDark: '暗色',
   },
   auth: {
     loginTitle: '登录 LiteOJ',
@@ -335,9 +337,14 @@ export const zh = {
     acRate: 'AC 率',
     ak: 'AK 数',
     verdictDistribution: '提交结果分布',
+    contributionTitle: '近一年做题活跃度',
     mySubs: '我的提交',
     submit: '提交',
     filter: '筛选',
+  },
+  verdictPie: {
+    empty: '暂无提交',
+    total: '总计',
   },
   tagPicker: {
     emptyHint: '暂无标签字典，请先到「标签管理」创建',

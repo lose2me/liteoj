@@ -106,6 +106,7 @@ func main() {
 			authed.GET("/me", authH.Me)
 			authed.POST("/me/password", authH.ChangePassword)
 			authed.GET("/me/stats", statsH.Stats)
+			authed.GET("/me/contribution", statsH.Contribution)
 
 			authed.GET("/problems/:id", probH.Detail)
 			authed.POST("/problems/:id/submit", subH.Submit)

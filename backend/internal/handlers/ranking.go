@@ -18,18 +18,18 @@ type RankingHandler struct {
 // rankRow holds both global-ranking and per-problemset-ranking fields; the
 // irrelevant ones carry `omitempty` so each mode produces a clean payload.
 type rankRow struct {
-	UserID        uint              `json:"user_id"`
-	Username      string            `json:"username"`
-	Name          string            `json:"name"`
-	ACCount       int               `json:"ac_count"`
-	TotalAttempts int               `json:"total_attempts,omitempty"`
+	UserID        uint   `json:"user_id"`
+	Username      string `json:"username"`
+	Name          string `json:"name"`
+	ACCount       int    `json:"ac_count"`
+	TotalAttempts int    `json:"total_attempts,omitempty"`
 	// Global only:
 	ACRate       float64    `json:"ac_rate,omitempty"`
 	AK           int        `json:"ak,omitempty"`
 	LastActiveAt *time.Time `json:"last_active_at,omitempty"`
 	// Problemset only:
-	PenaltyMin int               `json:"penalty_min,omitempty"`
-	Results    map[uint]string   `json:"results,omitempty"` // problem_id → best verdict in-set
+	PenaltyMin int             `json:"penalty_min,omitempty"`
+	Results    map[uint]string `json:"results,omitempty"` // problem_id → best verdict in-set
 }
 
 // Global ranks all users across every problem. Sort: AC count desc → AK desc
@@ -212,6 +212,8 @@ func computeAKPerUser(db *gorm.DB, since time.Time) map[uint]int {
 	qry := db.Table("submissions AS s").
 		Joins("JOIN problem_set_items psi ON psi.problem_set_id = s.problem_set_id AND psi.problem_id = s.problem_id").
 		Where("s.verdict = ? AND s.problem_set_id IS NOT NULL", models.VerdictAC).
+		// anti-join bans：被踢出后 submissions 保留但不计入 AK
+		Where("NOT EXISTS (SELECT 1 FROM problem_set_bans b WHERE b.problem_set_id = s.problem_set_id AND b.user_id = s.user_id)").
 		Select("s.problem_set_id, s.user_id, COUNT(DISTINCT s.problem_id) AS n").
 		Group("s.problem_set_id, s.user_id")
 	if !since.IsZero() {
@@ -288,6 +290,10 @@ func (h *RankingHandler) serveProblemset(c *gin.Context, psid uint, scope string
 			models.VerdictMLE, models.VerdictOLE, models.VerdictRE,
 			models.VerdictCE, models.VerdictPE,
 		}).
+		// 题单层面"踢人 = 从排名中消失"靠 anti-join ban 表实现：submissions 不删，
+		// 只在聚合时跳过被 ban 的 user。/submissions 全站列表无此过滤，学生历史
+		// 记录依旧完整可见——与 handlers/admin.go:RemoveProblemSetMember 配套。
+		Where("NOT EXISTS (SELECT 1 FROM problem_set_bans b WHERE b.problem_set_id = submissions.problem_set_id AND b.user_id = submissions.user_id)").
 		Order("user_id ASC, problem_id ASC, created_at ASC")
 	if !since.IsZero() {
 		q = q.Where("created_at >= ?", since)

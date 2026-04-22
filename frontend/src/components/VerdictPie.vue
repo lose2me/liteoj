@@ -5,6 +5,7 @@
 import { computed } from 'vue'
 import { NTag } from 'naive-ui'
 import { verdictType } from '../api/verdict'
+import { t } from '../i18n'
 
 const props = defineProps<{ distribution: Record<string, number> }>()
 
@@ -30,7 +31,7 @@ const total = computed(() =>
 </script>
 
 <template>
-  <div v-if="rows.length === 0" class="empty">暂无提交</div>
+  <div v-if="rows.length === 0" class="empty">{{ t.verdictPie.empty }}</div>
   <div v-else class="vdist">
     <div v-for="r in rows" :key="r.key" class="row">
       <NTag :type="verdictType(r.key)" size="small" class="tag">{{ r.key }}</NTag>
@@ -39,7 +40,7 @@ const total = computed(() =>
       </div>
       <span class="count">{{ r.count }}</span>
     </div>
-    <div class="total">总计 {{ total }}</div>
+    <div class="total">{{ t.verdictPie.total }} {{ total }}</div>
   </div>
 </template>
 

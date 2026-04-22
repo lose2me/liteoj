@@ -60,3 +60,29 @@ func (h *StatsHandler) Stats(c *gin.Context) {
 		"ak":                ak,
 	})
 }
+
+// Contribution returns the current user's per-day submission / AC counts over
+// the last 365 days, GitHub-heatmap style. SQLite-only: uses `strftime` to
+// normalize created_at into a YYYY-MM-DD bucket. When the frontend draws a
+// 52×7 grid for the past year, days with zero submissions simply stay absent
+// and render as empty cells. PG support is tracked as follow-up.
+func (h *StatsHandler) Contribution(c *gin.Context) {
+	uid := middleware.CurrentUserID(c)
+	since := time.Now().AddDate(-1, 0, 0).Format("2006-01-02")
+	type bucket struct {
+		Day   string `json:"date"`
+		Total int    `json:"count"`
+		AC    int    `json:"ac"`
+	}
+	var items []bucket
+	h.DB.Raw(`
+		SELECT strftime('%Y-%m-%d', created_at) AS day,
+		       COUNT(*)                                               AS total,
+		       SUM(CASE WHEN verdict = 'AC' THEN 1 ELSE 0 END)         AS ac
+		  FROM submissions
+		 WHERE user_id = ?
+		   AND created_at >= ?
+		 GROUP BY day
+		 ORDER BY day ASC`, uid, since).Scan(&items)
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}

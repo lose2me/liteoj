@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -85,11 +84,11 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 	// is small (school / club scale) and the backing index on submissions.user_id
 	// handles the GROUP BY cheaply.
 	type agg struct {
-		UserID  uint
-		Total   int
-		ACSub   int
-		Tried   int
-		ACProb  int
+		UserID uint
+		Total  int
+		ACSub  int
+		Tried  int
+		ACProb int
 	}
 	var aggs []agg
 	h.DB.Raw(`
@@ -464,38 +463,16 @@ func (h *AdminHandler) ListProblemSetMembers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": out})
 }
 
-// RemoveProblemSetMember 管理员强制踢出某用户：除了删成员记录 + 写入封禁，
-// 还会把"该用户在这个题单下的全部提交 + 这些提交衍生的 AI 分析任务"一并清
-// 掉——踢出 = 完全抹除存在，避免排名页、提交列表里残留幽灵条目。封禁记录
-// 保留（它是"禁止再次加入"的依据）。幂等：若已在 ban 表则只更新不重复插入。
+// RemoveProblemSetMember 管理员把某用户踢出题单：删成员关系 + 写入封禁。
+// **不删** submissions / ai_tasks——/submissions 全站列表仍需看到他的历史，
+// 题单层面的"消失"通过 ranking / problemset list 的 anti-join bans 实现
+// （见 handlers/ranking.go 与 handlers/problemset.go 里的 NOT EXISTS 子句）。
+// 幂等：若已在 ban 表则只更新不重复插入。
 func (h *AdminHandler) RemoveProblemSetMember(c *gin.Context) {
 	psid, _ := strconv.Atoi(c.Param("id"))
 	uid, _ := strconv.Atoi(c.Param("uid"))
 	actor := middleware.CurrentUserID(c)
 	err := h.DB.Transaction(func(tx *gorm.DB) error {
-		// 1. 先拿到待删提交的 id，用于清理 AI 任务（ai_tasks.subject 以
-		//    "submission #<id>" 形式反查）。
-		var subIDs []uint
-		if err := tx.Model(&models.Submission{}).
-			Where("problem_set_id = ? AND user_id = ?", psid, uid).
-			Pluck("id", &subIDs).Error; err != nil {
-			return err
-		}
-		if len(subIDs) > 0 {
-			subjects := make([]string, 0, len(subIDs))
-			for _, sid := range subIDs {
-				subjects = append(subjects, fmt.Sprintf("submission #%d", sid))
-			}
-			if err := tx.Where("kind = ? AND subject IN ?",
-				models.AITaskKindAnalyze, subjects).
-				Delete(&models.AITask{}).Error; err != nil {
-				return err
-			}
-		}
-		if err := tx.Where("problem_set_id = ? AND user_id = ?", psid, uid).
-			Delete(&models.Submission{}).Error; err != nil {
-			return err
-		}
 		if err := tx.Where("problem_set_id = ? AND user_id = ?", psid, uid).
 			Delete(&models.ProblemSetMember{}).Error; err != nil {
 			return err

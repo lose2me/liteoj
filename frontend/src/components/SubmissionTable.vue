@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   showFilters: false,
   detailFromPs: false,
-  pageSize: 20,
+  pageSize: 16,
 })
 
 const router = useRouter()

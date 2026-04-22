@@ -139,7 +139,7 @@ func (h *AIHandler) Optimize(c *gin.Context) {
 		return
 	}
 	if sub.Verdict != models.VerdictAC {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "仅 AC 提交可生成优化建议"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": i18n.ErrAIOptNonAC})
 		return
 	}
 	// 题单维度的 AI 禁用：如果该提交挂在某个禁用 AI 的题单里，直接拒绝。
@@ -173,12 +173,14 @@ func (h *AIHandler) Optimize(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"task_id": taskID, "status": models.AITaskStatusRunning})
 }
 
-func (h *AIHandler) AITag(c *gin.Context)        { h.startAuthoringTask(c, models.AITaskKindTag) }
-func (h *AIHandler) AIGenTitle(c *gin.Context)   { h.startAuthoringTask(c, models.AITaskKindGenTitle) }
-func (h *AIHandler) AIGenDesc(c *gin.Context)    { h.startAuthoringTask(c, models.AITaskKindGenDesc) }
-func (h *AIHandler) AIGenIdea(c *gin.Context)    { h.startAuthoringTask(c, models.AITaskKindGenIdea) }
-func (h *AIHandler) AIGenExplain(c *gin.Context) { h.startAuthoringTask(c, models.AITaskKindGenExplain) }
-func (h *AIHandler) AIGenAll(c *gin.Context)     { h.startAuthoringTask(c, models.AITaskKindGenAll) }
+func (h *AIHandler) AITag(c *gin.Context)      { h.startAuthoringTask(c, models.AITaskKindTag) }
+func (h *AIHandler) AIGenTitle(c *gin.Context) { h.startAuthoringTask(c, models.AITaskKindGenTitle) }
+func (h *AIHandler) AIGenDesc(c *gin.Context)  { h.startAuthoringTask(c, models.AITaskKindGenDesc) }
+func (h *AIHandler) AIGenIdea(c *gin.Context)  { h.startAuthoringTask(c, models.AITaskKindGenIdea) }
+func (h *AIHandler) AIGenExplain(c *gin.Context) {
+	h.startAuthoringTask(c, models.AITaskKindGenExplain)
+}
+func (h *AIHandler) AIGenAll(c *gin.Context) { h.startAuthoringTask(c, models.AITaskKindGenAll) }
 
 // ListTasks paginates the persistent AI task history for the admin page.
 func (h *AIHandler) ListTasks(c *gin.Context) {

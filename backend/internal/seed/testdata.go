@@ -18,7 +18,12 @@ func EnsureTestData(db *gorm.DB) error {
 	if err := ensureTaxonomy(db); err != nil {
 		return err
 	}
-	return ensureSampleProblems(db)
+	if err := ensureSampleProblems(db); err != nil {
+		return err
+	}
+	// EnsureAuditScenarios 按 Hello World 题是否存在自我去重；在已有数据上也可以
+	// 安全反复跑（无新建 → 直接返回）。
+	return EnsureAuditScenarios(db)
 }
 
 // ensureTaxonomy installs the 22-group knowledge taxonomy when TagGroup is empty.
@@ -423,18 +428,18 @@ func seedSubmissions(
 		return err
 	}
 	type subSeed struct {
-		user     uint
-		prob     uint
-		inSet    *uint
-		lang     string
-		code     string
-		verdict  string
-		message  string
-		cases    string
-		timeMS   int
-		memKB    int
+		user      uint
+		prob      uint
+		inSet     *uint
+		lang      string
+		code      string
+		verdict   string
+		message   string
+		cases     string
+		timeMS    int
+		memKB     int
 		aiExplain string
-		ageMin   int
+		ageMin    int
 	}
 	setID := contest.ID
 	practiceID := practice.ID
@@ -452,43 +457,43 @@ func seedSubmissions(
 		// --- students (existing fixtures) ---
 		{
 			user: students[0].ID, prob: probs[0].ID, lang: "cpp", verdict: models.VerdictAC,
-			code: "#include<iostream>\nusing namespace std;\nint main(){long long a,b;cin>>a>>b;cout<<a+b;}\n",
-			cases: acCasesBy[probs[0].ID],
+			code:   "#include<iostream>\nusing namespace std;\nint main(){long long a,b;cin>>a>>b;cout<<a+b;}\n",
+			cases:  acCasesBy[probs[0].ID],
 			timeMS: 3, memKB: 1024, ageMin: 120,
 		},
 		{
 			user: students[0].ID, prob: probs[2].ID, inSet: &setID, lang: "cpp", verdict: models.VerdictAC,
-			code: "#include<iostream>\nint main(){int n;std::cin>>n;long long a=0,b=1;while(n--){long long c=a+b;a=b;b=c;}std::cout<<a;}\n",
-			cases: acCasesBy[probs[2].ID],
+			code:   "#include<iostream>\nint main(){int n;std::cin>>n;long long a=0,b=1;while(n--){long long c=a+b;a=b;b=c;}std::cout<<a;}\n",
+			cases:  acCasesBy[probs[2].ID],
 			timeMS: 3, memKB: 900, ageMin: 95,
 		},
 		{
 			user: students[0].ID, prob: probs[1].ID, lang: "cpp", verdict: models.VerdictWA,
-			code: "#include<iostream>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<a;}\n",
+			code:    "#include<iostream>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<a;}\n",
 			message: "第 1 个用例期望 6，实际输出 12",
-			cases: `[{"index":1,"verdict":"WA","time_ms":2,"memory_kb":1000,"message":"expected 6"},{"index":2,"verdict":"AC","time_ms":2,"memory_kb":1000,"message":""}]`,
-			timeMS: 2, memKB: 1000,
+			cases:   `[{"index":1,"verdict":"WA","time_ms":2,"memory_kb":1000,"message":"expected 6"},{"index":2,"verdict":"AC","time_ms":2,"memory_kb":1000,"message":""}]`,
+			timeMS:  2, memKB: 1000,
 			aiExplain: "代码只输出了 `a` 而非 `gcd(a, b)`。应当实现辗转相除：`while (b) { a %= b; swap(a, b); }` 然后输出 `a`。\n\n```cpp\n#include<iostream>\nusing namespace std;\nint main(){long long a,b;cin>>a>>b;while(b){a%=b;swap(a,b);}cout<<a;}\n```",
-			ageMin: 50,
+			ageMin:    50,
 		},
 		{
 			user: students[1].ID, prob: probs[4].ID, lang: "python", verdict: models.VerdictTLE,
-			code: "s = input()\nresult = eval(s)  # naive, slow for large inputs\nprint(result)\n",
+			code:    "s = input()\nresult = eval(s)  # naive, slow for large inputs\nprint(result)\n",
 			message: "用例 1 超过时间限制 2000 ms",
-			cases: `[{"index":1,"verdict":"TLE","time_ms":2000,"memory_kb":12000,"message":""},{"index":2,"verdict":"TLE","time_ms":2000,"memory_kb":12000,"message":""},{"index":3,"verdict":"TLE","time_ms":2000,"memory_kb":12000,"message":""}]`,
-			timeMS: 2000, memKB: 12000, ageMin: 30,
+			cases:   `[{"index":1,"verdict":"TLE","time_ms":2000,"memory_kb":12000,"message":""},{"index":2,"verdict":"TLE","time_ms":2000,"memory_kb":12000,"message":""},{"index":3,"verdict":"TLE","time_ms":2000,"memory_kb":12000,"message":""}]`,
+			timeMS:  2000, memKB: 12000, ageMin: 30,
 		},
 		{
 			user: students[1].ID, prob: probs[3].ID, lang: "cpp", verdict: models.VerdictRE,
-			code: "int main(){int*p=0;*p=1;}\n",
+			code:    "int main(){int*p=0;*p=1;}\n",
 			message: "运行时错误：SIGSEGV",
-			cases: `[{"index":1,"verdict":"RE","time_ms":5,"memory_kb":2048,"message":"SIGSEGV"}]`,
-			timeMS: 5, memKB: 2048, ageMin: 24,
+			cases:   `[{"index":1,"verdict":"RE","time_ms":5,"memory_kb":2048,"message":"SIGSEGV"}]`,
+			timeMS:  5, memKB: 2048, ageMin: 24,
 			aiExplain: "代码故意解引用了空指针，导致段错误。最短路题应实现 Dijkstra；参考 solution_md 中的模板。",
 		},
 		{
 			user: students[1].ID, prob: probs[0].ID, lang: "cpp", verdict: models.VerdictCE,
-			code: "#include <iostream>\nint main() { std::cout << a + b; }\n",
+			code:    "#include <iostream>\nint main() { std::cout << a + b; }\n",
 			message: "编译错误：'a' was not declared in this scope",
 			cases:   `[]`,
 			timeMS:  0, memKB: 0, ageMin: 18,
@@ -496,20 +501,20 @@ func seedSubmissions(
 		},
 		{
 			user: students[2].ID, prob: probs[3].ID, lang: "cpp", verdict: models.VerdictMLE,
-			code: "#include<bits/stdc++.h>\nusing namespace std;\nint main(){vector<vector<int>> huge(100000,vector<int>(100000));cout<<0;}\n",
+			code:    "#include<bits/stdc++.h>\nusing namespace std;\nint main(){vector<vector<int>> huge(100000,vector<int>(100000));cout<<0;}\n",
 			message: "内存超限",
-			cases: `[{"index":1,"verdict":"MLE","time_ms":100,"memory_kb":300000,"message":""}]`,
-			timeMS: 100, memKB: 300000, ageMin: 10,
+			cases:   `[{"index":1,"verdict":"MLE","time_ms":100,"memory_kb":300000,"message":""}]`,
+			timeMS:  100, memKB: 300000, ageMin: 10,
 		},
 		{
 			user: students[2].ID, prob: probs[0].ID, lang: "python", verdict: models.VerdictAC,
-			code: "a, b = map(int, input().split())\nprint(a + b)\n",
-			cases: `[{"index":1,"verdict":"AC","time_ms":30,"memory_kb":8000,"message":""},{"index":2,"verdict":"AC","time_ms":28,"memory_kb":8000,"message":""},{"index":3,"verdict":"AC","time_ms":29,"memory_kb":8000,"message":""}]`,
+			code:   "a, b = map(int, input().split())\nprint(a + b)\n",
+			cases:  `[{"index":1,"verdict":"AC","time_ms":30,"memory_kb":8000,"message":""},{"index":2,"verdict":"AC","time_ms":28,"memory_kb":8000,"message":""},{"index":3,"verdict":"AC","time_ms":29,"memory_kb":8000,"message":""}]`,
 			timeMS: 30, memKB: 8000, ageMin: 5,
 		},
 		{
 			user: students[2].ID, prob: probs[1].ID, lang: "cpp", verdict: models.VerdictSE,
-			code: "int main(){}\n",
+			code:    "int main(){}\n",
 			message: "sandbox launcher returned non-zero",
 			cases:   `[]`,
 			timeMS:  0, memKB: 0, ageMin: 2,
@@ -525,32 +530,32 @@ func seedSubmissions(
 		// ranking / heatmap / 个人中心 distribution all render with depth ---
 		{
 			user: admin.ID, prob: probs[0].ID, lang: "cpp", verdict: models.VerdictAC,
-			code: "#include<iostream>\nusing namespace std;\nint main(){long long a,b;cin>>a>>b;cout<<a+b<<'\\n';}\n",
+			code:  "#include<iostream>\nusing namespace std;\nint main(){long long a,b;cin>>a>>b;cout<<a+b<<'\\n';}\n",
 			cases: acCasesBy[probs[0].ID], timeMS: 2, memKB: 1024,
 			ageMin: 18 * day,
 		},
 		{
 			user: admin.ID, prob: probs[0].ID, lang: "python", verdict: models.VerdictAC,
-			code: "a, b = map(int, input().split())\nprint(a + b)\n",
+			code:  "a, b = map(int, input().split())\nprint(a + b)\n",
 			cases: acCasesBy[probs[0].ID], timeMS: 25, memKB: 7500,
 			ageMin: 17 * day,
 		},
 		{
 			user: admin.ID, prob: probs[1].ID, lang: "cpp", verdict: models.VerdictWA,
-			code: "#include<iostream>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<(a+b);}\n",
+			code:    "#include<iostream>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<(a+b);}\n",
 			message: "用例 1 期望 6，实际 30",
 			cases:   `[{"index":1,"verdict":"WA","time_ms":2,"memory_kb":900,"message":"expected 6"}]`,
 			timeMS:  2, memKB: 900, ageMin: 15*day + 120,
 		},
 		{
 			user: admin.ID, prob: probs[1].ID, lang: "cpp", verdict: models.VerdictAC,
-			code: "#include<iostream>\nusing namespace std;\nlong long g(long long a,long long b){return b?g(b,a%b):a;}\nint main(){long long a,b;cin>>a>>b;cout<<g(a,b)<<'\\n';}\n",
+			code:  "#include<iostream>\nusing namespace std;\nlong long g(long long a,long long b){return b?g(b,a%b):a;}\nint main(){long long a,b;cin>>a>>b;cout<<g(a,b)<<'\\n';}\n",
 			cases: acCasesBy[probs[1].ID], timeMS: 1, memKB: 900,
 			ageMin: 15*day + 60,
 		},
 		{
 			user: admin.ID, prob: probs[2].ID, lang: "cpp", verdict: models.VerdictAC,
-			code: "#include<iostream>\nint main(){int n;std::cin>>n;long long a=0,b=1;while(n--){long long c=a+b;a=b;b=c;}std::cout<<a;}\n",
+			code:  "#include<iostream>\nint main(){int n;std::cin>>n;long long a=0,b=1;while(n--){long long c=a+b;a=b;b=c;}std::cout<<a;}\n",
 			cases: acCasesBy[probs[2].ID], timeMS: 2, memKB: 900,
 			ageMin: 13 * day,
 		},
@@ -563,43 +568,43 @@ func seedSubmissions(
 		},
 		{
 			user: admin.ID, prob: probs[3].ID, lang: "cpp", verdict: models.VerdictAC,
-			code: "// Dijkstra + 堆优化，复杂度 O((n+m) log n)\n#include<bits/stdc++.h>\nusing namespace std;\nint main(){ /* ... */ return 0; }\n",
+			code:  "// Dijkstra + 堆优化，复杂度 O((n+m) log n)\n#include<bits/stdc++.h>\nusing namespace std;\nint main(){ /* ... */ return 0; }\n",
 			cases: acCasesBy[probs[3].ID], timeMS: 45, memKB: 9000,
 			ageMin: 11 * day,
 		},
 		{
 			user: admin.ID, prob: probs[4].ID, lang: "cpp", verdict: models.VerdictAC,
-			code: "// 调度场算法\n#include<bits/stdc++.h>\nusing namespace std;\nint main(){ /* ... */ return 0; }\n",
+			code:  "// 调度场算法\n#include<bits/stdc++.h>\nusing namespace std;\nint main(){ /* ... */ return 0; }\n",
 			cases: acCasesBy[probs[4].ID], timeMS: 12, memKB: 3800,
 			ageMin: 9 * day,
 		},
 		{
 			user: admin.ID, prob: probs[0].ID, inSet: &setID, lang: "cpp", verdict: models.VerdictAC,
-			code: "#include<iostream>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<a+b;}\n",
+			code:  "#include<iostream>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<a+b;}\n",
 			cases: acCasesBy[probs[0].ID], timeMS: 2, memKB: 1024,
 			ageMin: 7 * day,
 		},
 		{
 			user: admin.ID, prob: probs[2].ID, inSet: &setID, lang: "python", verdict: models.VerdictAC,
-			code: "n = int(input())\na, b = 0, 1\nfor _ in range(n):\n    a, b = b, a + b\nprint(a)\n",
+			code:  "n = int(input())\na, b = 0, 1\nfor _ in range(n):\n    a, b = b, a + b\nprint(a)\n",
 			cases: acCasesBy[probs[2].ID], timeMS: 28, memKB: 7800,
 			ageMin: 5 * day,
 		},
 		{
 			user: admin.ID, prob: probs[4].ID, inSet: &setID, lang: "cpp", verdict: models.VerdictAC,
-			code: "// same as standalone submission\n#include<bits/stdc++.h>\nint main(){}\n",
+			code:  "// same as standalone submission\n#include<bits/stdc++.h>\nint main(){}\n",
 			cases: acCasesBy[probs[4].ID], timeMS: 14, memKB: 3900,
 			ageMin: 3 * day,
 		},
 		{
 			user: admin.ID, prob: probs[1].ID, lang: "python", verdict: models.VerdictAC,
-			code: "import math\na, b = map(int, input().split())\nprint(math.gcd(a, b))\n",
+			code:  "import math\na, b = map(int, input().split())\nprint(math.gcd(a, b))\n",
 			cases: acCasesBy[probs[1].ID], timeMS: 26, memKB: 7400,
 			ageMin: 1 * day,
 		},
 		{
 			user: admin.ID, prob: probs[3].ID, lang: "cpp", verdict: models.VerdictAC,
-			code: "// 再来一遍巩固\n#include<bits/stdc++.h>\nint main(){}\n",
+			code:  "// 再来一遍巩固\n#include<bits/stdc++.h>\nint main(){}\n",
 			cases: acCasesBy[probs[3].ID], timeMS: 42, memKB: 8800,
 			ageMin: 360,
 		},
@@ -611,25 +616,25 @@ func seedSubmissions(
 		// WA-before-AC attempts so the ranking penalty column has non-zero data.
 		{
 			user: admin.ID, prob: probs[0].ID, inSet: &practiceID, lang: "cpp", verdict: models.VerdictAC,
-			code: "#include<iostream>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<a+b;}\n",
+			code:  "#include<iostream>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<a+b;}\n",
 			cases: acCasesBy[probs[0].ID], timeMS: 2, memKB: 1024,
 			ageMin: 8 * day,
 		},
 		{
 			user: admin.ID, prob: probs[1].ID, inSet: &practiceID, lang: "cpp", verdict: models.VerdictAC,
-			code: "#include<iostream>\nusing namespace std;\nlong long g(long long a,long long b){return b?g(b,a%b):a;}\nint main(){long long a,b;cin>>a>>b;cout<<g(a,b);}\n",
+			code:  "#include<iostream>\nusing namespace std;\nlong long g(long long a,long long b){return b?g(b,a%b):a;}\nint main(){long long a,b;cin>>a>>b;cout<<g(a,b);}\n",
 			cases: acCasesBy[probs[1].ID], timeMS: 1, memKB: 900,
 			ageMin: 8*day - 60,
 		},
 		{
 			user: admin.ID, prob: probs[2].ID, inSet: &practiceID, lang: "cpp", verdict: models.VerdictAC,
-			code: "#include<iostream>\nint main(){int n;std::cin>>n;long long a=0,b=1;while(n--){long long c=a+b;a=b;b=c;}std::cout<<a;}\n",
+			code:  "#include<iostream>\nint main(){int n;std::cin>>n;long long a=0,b=1;while(n--){long long c=a+b;a=b;b=c;}std::cout<<a;}\n",
 			cases: acCasesBy[probs[2].ID], timeMS: 2, memKB: 900,
 			ageMin: 8*day - 120,
 		},
 		{
 			user: admin.ID, prob: probs[3].ID, inSet: &setID, lang: "cpp", verdict: models.VerdictAC,
-			code: "// Dijkstra 堆优化（题单内）\n#include<bits/stdc++.h>\nint main(){}\n",
+			code:  "// Dijkstra 堆优化（题单内）\n#include<bits/stdc++.h>\nint main(){}\n",
 			cases: acCasesBy[probs[3].ID], timeMS: 50, memKB: 9200,
 			ageMin: 4 * day,
 		},
@@ -642,7 +647,7 @@ func seedSubmissions(
 		},
 		{
 			user: students[0].ID, prob: probs[3].ID, inSet: &setID, lang: "cpp", verdict: models.VerdictAC,
-			code: "// student 改对了\n#include<bits/stdc++.h>\nint main(){}\n",
+			code:  "// student 改对了\n#include<bits/stdc++.h>\nint main(){}\n",
 			cases: acCasesBy[probs[3].ID], timeMS: 55, memKB: 9200,
 			ageMin: 2 * day,
 		},
@@ -655,7 +660,7 @@ func seedSubmissions(
 		},
 		{
 			user: students[0].ID, prob: probs[4].ID, inSet: &setID, lang: "cpp", verdict: models.VerdictAC,
-			code: "// student 调度场 AC\n#include<bits/stdc++.h>\nint main(){}\n",
+			code:  "// student 调度场 AC\n#include<bits/stdc++.h>\nint main(){}\n",
 			cases: acCasesBy[probs[4].ID], timeMS: 20, memKB: 4200,
 			ageMin: day + 60,
 		},
@@ -768,9 +773,10 @@ func nonZero(ids []uint) []uint {
 
 // paddingOp returns the arithmetic spec for the i-th padding problem. i in
 // 0..29 covers three buckets so the generated题单 has a mix of 加 / 乘 / 减：
-//   0..9  → a + (i+1),     LaTeX symbol "+"
-//   10..19 → a × (i-8),    LaTeX symbol "\times", k ∈ [2, 11]
-//   20..29 → a - (i-19),   LaTeX symbol "-"
+//
+//	0..9  → a + (i+1),     LaTeX symbol "+"
+//	10..19 → a × (i-8),    LaTeX symbol "\times", k ∈ [2, 11]
+//	20..29 → a - (i-19),   LaTeX symbol "-"
 func paddingOp(i int) (op string, k int, symbol, verb string) {
 	switch {
 	case i < 10:
@@ -798,9 +804,10 @@ func paddingApply(a int, op string, k int) int {
 
 // seedPaddingSubmissions fills the 30-problem set with partial sweeps + a small
 // cross-section of the new OLE / PE / UKE verdicts. Without this:
-//  · 后台用户管理页 stu4/5/6 的统计列全是 0
-//  · VerdictPie 永远看不到 OLE / PE / UKE 色块
-//  · 个人中心 AK 数不会被新题单触发
+//
+//	· 后台用户管理页 stu4/5/6 的统计列全是 0
+//	· VerdictPie 永远看不到 OLE / PE / UKE 色块
+//	· 个人中心 AK 数不会被新题单触发
 func seedPaddingSubmissions(
 	db *gorm.DB, students []models.User, padding []*models.Problem, bigSet *models.ProblemSet,
 ) error {

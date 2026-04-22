@@ -173,10 +173,12 @@ func (r *Runner) Judge(ctx context.Context, in RunnerInput) (*RunnerOutput, erro
 
 // mapStatus translates a go-judge `Status` field into our verdict enum. The
 // split mirrors the user-facing definitions:
-//   Signalled          → RE  (segfault / div-by-zero / stack overflow / OOB)
-//   Nonzero Exit       → SE  (non-signal abnormal exit)
-//   Dangerous Syscall  → SE  (sandbox caught forbidden syscall)
-//   Internal Error / ""→ UKE (judge machine itself malfunctioned)
+//
+//	Signalled          → RE  (segfault / div-by-zero / stack overflow / OOB)
+//	Nonzero Exit       → SE  (non-signal abnormal exit)
+//	Dangerous Syscall  → SE  (sandbox caught forbidden syscall)
+//	Internal Error / ""→ UKE (judge machine itself malfunctioned)
+//
 // Output Limit Exceeded maps to OLE (was previously collapsed into WA).
 func mapStatus(status string, exitStatus int) string {
 	switch status {
@@ -203,9 +205,11 @@ func mapStatus(status string, exitStatus int) string {
 }
 
 // compareOutput decides AC / PE / WA by two tiers of equality:
-//   byte-exact      → AC
-//   normalized      → PE (trailing whitespace / trailing empty lines only)
-//   otherwise       → WA
+//
+//	byte-exact      → AC
+//	normalized      → PE (trailing whitespace / trailing empty lines only)
+//	otherwise       → WA
+//
 // Called only when the sandbox reported Accepted; a failing sandbox status
 // short-circuits before we get here.
 func compareOutput(got, expected string) string {

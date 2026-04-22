@@ -26,18 +26,18 @@ type File struct {
 }
 
 type Cmd struct {
-	Args              []string            `json:"args"`
-	Env               []string            `json:"env,omitempty"`
-	Files             []*File             `json:"files"`
-	CPULimit          int64               `json:"cpuLimit,omitempty"`
-	ClockLimit        int64               `json:"clockLimit,omitempty"`
-	MemoryLimit       int64               `json:"memoryLimit,omitempty"`
-	StackLimit        int64               `json:"stackLimit,omitempty"`
-	ProcLimit         int64               `json:"procLimit,omitempty"`
-	CopyIn            map[string]File     `json:"copyIn,omitempty"`
-	CopyOut           []string            `json:"copyOut,omitempty"`
-	CopyOutCached     []string            `json:"copyOutCached,omitempty"`
-	CopyOutDir        string              `json:"copyOutDir,omitempty"`
+	Args          []string        `json:"args"`
+	Env           []string        `json:"env,omitempty"`
+	Files         []*File         `json:"files"`
+	CPULimit      int64           `json:"cpuLimit,omitempty"`
+	ClockLimit    int64           `json:"clockLimit,omitempty"`
+	MemoryLimit   int64           `json:"memoryLimit,omitempty"`
+	StackLimit    int64           `json:"stackLimit,omitempty"`
+	ProcLimit     int64           `json:"procLimit,omitempty"`
+	CopyIn        map[string]File `json:"copyIn,omitempty"`
+	CopyOut       []string        `json:"copyOut,omitempty"`
+	CopyOutCached []string        `json:"copyOutCached,omitempty"`
+	CopyOutDir    string          `json:"copyOutDir,omitempty"`
 }
 
 type Result struct {

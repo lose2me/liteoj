@@ -7,7 +7,7 @@ const routes = [
     component: () => import('../components/AppLayout.vue'),
     children: [
       { path: '', component: () => import('../pages/Home.vue'), meta: { public: true } },
-      { path: 'problems', component: () => import('../pages/ProblemList.vue') },
+      { path: 'problems', component: () => import('../pages/ProblemList.vue'), meta: { public: true } },
       { path: 'problems/:id', component: () => import('../pages/ProblemDetail.vue'), meta: { wide: true } },
       { path: 'submissions', component: () => import('../pages/MySubmissions.vue') },
       { path: 'submissions/:id', component: () => import('../pages/SubmissionDetail.vue') },

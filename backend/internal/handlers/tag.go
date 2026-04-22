@@ -18,10 +18,10 @@ type TagHandler struct {
 }
 
 type tagDictResp struct {
-	ID    uint        `json:"id"`
-	Name  string      `json:"name"`
+	ID    uint         `json:"id"`
+	Name  string       `json:"name"`
 	Tags  []models.Tag `json:"tags"`
-	Order int         `json:"order_index"`
+	Order int          `json:"order_index"`
 }
 
 // List returns the tag dictionary (groups with nested tags).

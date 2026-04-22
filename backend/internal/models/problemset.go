@@ -5,7 +5,7 @@ import "time"
 type ProblemSet struct {
 	ID               uint       `gorm:"primaryKey" json:"id"`
 	Title            string     `gorm:"size:255;not null" json:"title"`
-	AllowedLangsJSON string     `gorm:"type:text" json:"-"`         // JSON: ["cpp","python"] | "" => 全部允许
+	AllowedLangsJSON string     `gorm:"type:text" json:"-"`               // JSON: ["cpp","python"] | "" => 全部允许
 	AllowedLangs     []string   `gorm:"-" json:"allowed_langs,omitempty"` // transient: 与 AllowedLangsJSON 互转
 	Password         string     `gorm:"size:128" json:"password,omitempty"`
 	StartTime        *time.Time `json:"start_time,omitempty"`
@@ -15,19 +15,22 @@ type ProblemSet struct {
 	// AutoMigrate 新列会填 default。
 	Visible bool `gorm:"default:true" json:"visible"`
 	// 题单级权限开关。进入题单上下文读题或提交时生效；独立题目页不受影响。
-	DisableIdea     bool `gorm:"default:false" json:"disable_idea"`
-	DisableSolution bool `gorm:"default:false" json:"disable_solution"`
-	DisableAI       bool `gorm:"default:false" json:"disable_ai"`
-	CreatedBy       uint       `json:"created_by"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	DisableIdea     bool      `gorm:"default:false" json:"disable_idea"`
+	DisableSolution bool      `gorm:"default:false" json:"disable_solution"`
+	DisableAI       bool      `gorm:"default:false" json:"disable_ai"`
+	CreatedBy       uint      `json:"created_by"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type ProblemSetItem struct {
-	ID           uint `gorm:"primaryKey" json:"id"`
-	ProblemSetID uint `gorm:"index;not null" json:"problemset_id"`
-	ProblemID    uint `gorm:"index;not null" json:"problem_id"`
-	OrderIndex   int  `gorm:"default:0" json:"order_index"`
+	ID uint `gorm:"primaryKey" json:"id"`
+	// uniq_ps_problem 保证同一题单里同一题只挂一行，防止重复加题（前端拖拽 + 后端
+	// 批量更新都会经过 SetProblemSetItems，这个约束是最后一道防线）。
+	// idx_ps_order 加速题单视图按 order_index 排序。
+	ProblemSetID uint `gorm:"index;index:uniq_ps_problem,unique,priority:1;index:idx_ps_order,priority:1;not null" json:"problemset_id"`
+	ProblemID    uint `gorm:"index;index:uniq_ps_problem,unique,priority:2;not null" json:"problem_id"`
+	OrderIndex   int  `gorm:"default:0;index:idx_ps_order,priority:2" json:"order_index"`
 }
 
 // ProblemSetMember 表记录用户是否已加入某题单。在题单上下文内做题（即提交

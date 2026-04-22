@@ -36,6 +36,7 @@ const (
 // AI
 const (
 	ErrAIAcNoAnalyze = "AC 提交无需解析"
+	ErrAIOptNonAC    = "仅 AC 提交可生成优化建议"
 )
 
 // Admin bulk-create users

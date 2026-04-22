@@ -43,10 +43,10 @@ type Config struct {
 	// AIMaxWaitSeconds 是后端等待一次 AI 调用的上限秒数，超过即把 context
 	// 取消、任务判失败。覆盖所有 kind（analyze / optimize / tag / gen_*），
 	// 方便把需要长推理的机型（DeepSeek-V3 等）统一放宽到 5~10 分钟。
-	AIMaxWaitSeconds   int
-	AIPromptWA     string
-	AIPromptOpt    string
-	AIPromptTag    string
+	AIMaxWaitSeconds int
+	AIPromptWA       string
+	AIPromptOpt      string
+	AIPromptTag      string
 	// Problem authoring prompts — all sourced from raw content pasted into
 	// the ProblemEdit "详细" field. Prompts must come from config.toml; the
 	// code ships no defaults so the admin owns the format/style/heading
@@ -145,16 +145,16 @@ func Load() *Config {
 		AdminInitPassword:   or(t.AdminInit.Password, "admin123"),
 		AdminInitName:       or(t.AdminInit.Name, "超级管理员"),
 		JudgeBaseURL:        or(t.Judge.BaseURL, "http://127.0.0.1:5050"),
-		JudgeLangs:          orSlice(t.Judge.Langs, []string{"c", "cpp", "java", "python", "go"}),
+		JudgeLangs:          orSlice(t.Judge.Langs, []string{"c", "cpp", "java", "python"}),
 		JudgeDefaultCPU:     orInt(t.Judge.DefaultCPUMS, 1000),
 		JudgeDefaultMem:     orInt(t.Judge.DefaultMemMB, 256),
 		JudgeQueueWorkers:   orInt(t.Judge.QueueWorkers, 1),
 		JudgeQueueCap:       orInt(t.Judge.QueueCap, 256),
 		JudgeMaxWaitSeconds: orInt(t.Judge.MaxWaitSeconds, 120),
-		BifrostBaseURL: t.AI.BifrostBaseURL,
-		BifrostAPIKey:  t.AI.BifrostAPIKey,
-		BifrostModel:   or(t.AI.BifrostModel, "claude-sonnet-4-6"),
-		AIEnabled:          t.AI.Enabled,
+		BifrostBaseURL:      t.AI.BifrostBaseURL,
+		BifrostAPIKey:       t.AI.BifrostAPIKey,
+		BifrostModel:        or(t.AI.BifrostModel, "deepseek-chat"),
+		AIEnabled:           t.AI.Enabled,
 		// 默认 180s：沿用旧 kindTimeout 里最长的 GenAll 预算。旧机型 / 短
 		// 推理只需要一个兜底上限；DeepSeek-V3 这类慢思考机型在 config.toml
 		// 里把它调到 600 即可。

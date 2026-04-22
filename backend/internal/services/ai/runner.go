@@ -42,15 +42,15 @@ type Job struct {
 // the buffer is saturated — handlers MUST call Queue.End with this error so
 // the audit row reflects the failure.
 type Runner struct {
-	db         *gorm.DB
-	queue      *Queue
-	prompts    *Prompts
-	ch         chan Job
-	wg         sync.WaitGroup
-	workers    int
+	db      *gorm.DB
+	queue   *Queue
+	prompts *Prompts
+	ch      chan Job
+	wg      sync.WaitGroup
+	workers int
 	// maxWait 是每个 AI 任务从入队执行到返回的上限，来自 config.toml
 	// [ai].max_wait_seconds；0 即沿用 kindTimeout 的旧内置档位。
-	maxWait    time.Duration
+	maxWait time.Duration
 }
 
 var ErrQueueFull = errors.New("AI 任务队列已满，请稍后再试")
@@ -174,9 +174,9 @@ func (r *Runner) execute(ctx context.Context, j Job) (any, string) {
 		// 避免两次写引起的短暂不一致（学生端 race 查到 explanation 为空但
 		// rejected=false 之类）。
 		r.db.Model(&sub).Updates(map[string]any{
-			"ai_explanation":    explanation,
-			"ai_rejected":       rejected,
-			"ai_reject_reason":  rejectReason,
+			"ai_explanation":   explanation,
+			"ai_rejected":      rejected,
+			"ai_reject_reason": rejectReason,
 		})
 		return map[string]any{
 			"explanation": explanation,

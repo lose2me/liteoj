@@ -3,10 +3,12 @@ import { NLayout, NLayoutHeader, NMenu, NButton, NDrawer, NDrawerContent } from 
 import { computed, ref } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
+import { useThemeStore } from '../stores/theme'
 import LoginCard from './LoginCard.vue'
 import { t } from '../i18n'
 
 const user = useUserStore()
+const theme = useThemeStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -73,6 +75,9 @@ const logout = () => {
           @update:value="onMenuSelect"
         />
         <div class="header-actions">
+          <NButton size="small" quaternary @click="theme.toggle">
+            {{ theme.isDark ? t.nav.themeLight : t.nav.themeDark }}
+          </NButton>
           <template v-if="user.isLoggedIn">
             <span class="user-nick text-sm opacity-80">
               {{ user.user?.name || user.user?.username }}

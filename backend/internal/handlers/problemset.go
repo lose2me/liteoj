@@ -110,7 +110,12 @@ func (h *ProblemSetHandler) List(c *gin.Context) {
 			   AND s.problem_set_id = psi.problem_set_id
 			   AND s.user_id = ?
 			   AND s.verdict = 'AC'
-			 GROUP BY psi.problem_set_id`, uid).Scan(&rows)
+			 WHERE NOT EXISTS (
+			     SELECT 1 FROM problem_set_bans b
+			      WHERE b.problem_set_id = psi.problem_set_id
+			        AND b.user_id = ?
+			   )
+			 GROUP BY psi.problem_set_id`, uid, uid).Scan(&rows)
 		for _, row := range rows {
 			acByPS[row.ProblemSetID] = row.N
 		}
@@ -131,6 +136,7 @@ func (h *ProblemSetHandler) List(c *gin.Context) {
 	// Leader per problem set: the user who AC'd the most distinct problems in
 	// that set via in-set submissions. Single aggregation over (set, user)
 	// pairs; Go picks the max per set in memory.
+	// anti-join bans：被踢的学生即使提交仍在，也不应该再顶榜首。
 	type topInfo struct {
 		uid uint
 		ac  int
@@ -150,6 +156,11 @@ func (h *ProblemSetHandler) List(c *gin.Context) {
 			    ON s.problem_id = psi.problem_id
 			   AND s.problem_set_id = psi.problem_set_id
 			   AND s.verdict = 'AC'
+			   AND NOT EXISTS (
+			     SELECT 1 FROM problem_set_bans b
+			      WHERE b.problem_set_id = s.problem_set_id
+			        AND b.user_id       = s.user_id
+			   )
 			 GROUP BY psi.problem_set_id, s.user_id`).Scan(&rows)
 		for _, row := range rows {
 			cur, ok := topByPS[row.ProblemSetID]
@@ -326,8 +337,13 @@ func (h *ProblemSetHandler) Detail(c *gin.Context) {
 		var rows []r
 		h.DB.Raw(`
 			SELECT user_id, COUNT(DISTINCT problem_id) AS ac
-			  FROM submissions
+			  FROM submissions s
 			 WHERE verdict = 'AC' AND problem_set_id = ? AND problem_id IN ?
+			   AND NOT EXISTS (
+			     SELECT 1 FROM problem_set_bans b
+			      WHERE b.problem_set_id = s.problem_set_id
+			        AND b.user_id       = s.user_id
+			   )
 			 GROUP BY user_id
 			 ORDER BY ac DESC LIMIT 1`, ps.ID, ids).Scan(&rows)
 		if len(rows) > 0 && rows[0].AC > 0 {
@@ -374,6 +390,11 @@ func (h *ProblemSetHandler) problemSetHeadline(psID uint) (itemCount int, topNam
 		    ON psi.problem_set_id = s.problem_set_id
 		   AND psi.problem_id    = s.problem_id
 		 WHERE s.verdict = 'AC' AND s.problem_set_id = ?
+		   AND NOT EXISTS (
+		     SELECT 1 FROM problem_set_bans b
+		      WHERE b.problem_set_id = s.problem_set_id
+		        AND b.user_id       = s.user_id
+		   )
 		 GROUP BY s.user_id
 		 ORDER BY ac DESC LIMIT 1`, psID).Scan(&rows)
 	if len(rows) == 0 || rows[0].AC == 0 {

@@ -24,10 +24,10 @@ type AdminStatusHandler struct {
 	// 这个值缓存 20 秒避免把 dashboard 的 Promise.all 拖垮。
 	// 过期后下一次请求同步重取一次——业务上没有并发雪崩，admin 只有一个人在看，
 	// 不必引入 singleflight。
-	judgeMu   sync.Mutex
-	judgeAt   time.Time
-	judgeVer  string
-	judgeErr  error
+	judgeMu  sync.Mutex
+	judgeAt  time.Time
+	judgeVer string
+	judgeErr error
 }
 
 const judgeProbeTTL = 20 * time.Second

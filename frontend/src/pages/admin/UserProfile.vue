@@ -36,7 +36,7 @@ const loadSubs = async () => {
       user_id: userId(),
       verdict: subsVerdict.value || undefined,
       page: subsPage.value,
-      page_size: 10,
+      page_size: 16,
     },
   })
   subs.value = data.items
@@ -126,7 +126,7 @@ const subsColumns = [
         :columns="subsColumns"
         :data="subs"
         :pagination="{
-          page: subsPage, pageSize: 10, itemCount: subsTotal, showSizePicker: false,
+          page: subsPage, pageSize: 16, itemCount: subsTotal, showSizePicker: false,
           onChange: (p: number) => { subsPage = p; loadSubs() },
         }"
         remote

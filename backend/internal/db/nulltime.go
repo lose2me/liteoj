@@ -18,7 +18,7 @@ import (
 //     `MIN(CASE WHEN ... THEN created_at END) AS first_ac` lose that type hint
 //     and fall back to database/sql's convertAssign — which does NOT know how
 //     to stuff a string into a *time.Time and errors out with:
-//         "unsupported Scan, storing driver.Value type string into type *time.Time"
+//     "unsupported Scan, storing driver.Value type string into type *time.Time"
 //   - stdlib's sql.NullTime only accepts time.Time / nil and has the same hole.
 //
 // Any handler that runs Raw(...).Scan(&rows) where rows has a datetime-ish

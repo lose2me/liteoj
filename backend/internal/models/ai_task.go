@@ -21,13 +21,14 @@ const (
 )
 
 type AITask struct {
-	ID         uint       `gorm:"primaryKey" json:"id"`
-	Kind       string     `gorm:"size:16;index;not null" json:"kind"`
-	UserID     uint       `gorm:"index" json:"user_id"`
-	Username   string     `gorm:"size:64" json:"username"`
-	Subject    string     `gorm:"size:128" json:"subject"`
-	Status     string     `gorm:"size:16;index;not null" json:"status"`
-	StartedAt  time.Time  `gorm:"index" json:"started_at"`
+	ID       uint   `gorm:"primaryKey" json:"id"`
+	Kind     string `gorm:"size:16;index;not null" json:"kind"`
+	UserID   uint   `gorm:"index" json:"user_id"`
+	Username string `gorm:"size:64" json:"username"`
+	Subject  string `gorm:"size:128" json:"subject"`
+	// idx_status_started 支撑 admin "运行中任务"筛选 + "近期任务"排序这对热查询。
+	Status     string     `gorm:"size:16;index;index:idx_status_started,priority:1;not null" json:"status"`
+	StartedAt  time.Time  `gorm:"index;index:idx_status_started,priority:2" json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	DurationMS int        `json:"duration_ms"`
 	Error      string     `gorm:"type:text" json:"error,omitempty"`

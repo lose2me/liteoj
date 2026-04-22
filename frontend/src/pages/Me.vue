@@ -11,6 +11,7 @@ import { verdictLabel } from '../api/verdict'
 import { onEvent } from '../api/events'
 import VerdictPie from '../components/VerdictPie.vue'
 import SubmissionTable from '../components/SubmissionTable.vue'
+import ContributionHeatmap from '../components/ContributionHeatmap.vue'
 import { t } from '../i18n'
 
 const user = useUserStore()
@@ -104,6 +105,9 @@ const verdictOptions: SelectOption[] = [
 
       <h3 class="mt-6">{{ t.me.verdictDistribution }}</h3>
       <VerdictPie :distribution="stats.distribution || {}" />
+
+      <h3 class="mt-6">{{ t.me.contributionTitle }}</h3>
+      <ContributionHeatmap />
     </NCard>
 
     <NCard :title="t.me.mySubs" class="col-span-3">
@@ -115,7 +119,7 @@ const verdictOptions: SelectOption[] = [
           :placeholder="t.submission.filterVerdict"
         />
       </NSpace>
-      <SubmissionTable v-if="user.user?.id" :query="subsQuery" :page-size="10" />
+      <SubmissionTable v-if="user.user?.id" :query="subsQuery" :page-size="16" />
     </NCard>
   </div>
 </template>

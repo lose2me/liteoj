@@ -180,8 +180,8 @@ const rowProps = (row: Row) => ({
   },
 })
 
-// 客户端分页，固定 16/页。数据一次拉完后本地翻页即可。
-const pagination = { pageSize: 16 }
+// 客户端分页，固定 20/页（后台用户管理按 spec 基线 20）。数据一次拉完后本地翻页即可。
+const pagination = { pageSize: 20 }
 </script>
 
 <template>
