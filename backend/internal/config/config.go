@@ -43,6 +43,9 @@ type Config struct {
 	BifrostAPIKey  string
 	BifrostModel   string
 	AIEnabled      bool
+	// AIQueueWorkers 控制同时有多少个 AI 任务并发调用上游模型。
+	AIQueueWorkers int
+	AIQueueCap     int
 	// AIMaxWaitSeconds 是后端等待一次 AI 调用的上限秒数，超过即把 context
 	// 取消、任务判失败。覆盖所有 kind（analyze / optimize / tag / gen_*），
 	// 方便把需要长推理的机型（DeepSeek-V3 等）统一放宽到 5~10 分钟。
@@ -106,6 +109,8 @@ type tomlConfig struct {
 		BifrostBaseURL    string `toml:"bifrost_base_url"`
 		BifrostAPIKey     string `toml:"bifrost_api_key"`
 		BifrostModel      string `toml:"bifrost_model"`
+		QueueWorkers      int    `toml:"queue_workers"`
+		QueueCap          int    `toml:"queue_cap"`
 		MaxWaitSeconds    int    `toml:"max_wait_seconds"`
 		PromptWrongAnswer string `toml:"prompt_wrong_answer"`
 		PromptOptimize    string `toml:"prompt_optimize"`
@@ -142,27 +147,29 @@ func Load() *Config {
 	}
 
 	return &Config{
-		AppPort:             or(t.App.Port, "8080"),
-		AppMode:             or(t.App.Mode, "dev"),
-		DBDriver:            or(t.DB.Driver, "sqlite"),
-		DBDSN:               or(t.DB.DSN, "./data/liteoj.db"),
-		JWTSecret:           or(t.JWT.Secret, "change-me"),
-		JWTTTLHours:         orInt(t.JWT.TTLHours, 24),
-		AdminInitUsername:   or(t.AdminInit.Username, "admin"),
-		AdminInitPassword:   or(t.AdminInit.Password, "admin123"),
-		AdminInitName:       or(t.AdminInit.Name, "超级管理员"),
+		AppPort:                      or(t.App.Port, "8080"),
+		AppMode:                      or(t.App.Mode, "dev"),
+		DBDriver:                     or(t.DB.Driver, "sqlite"),
+		DBDSN:                        or(t.DB.DSN, "./data/liteoj.db"),
+		JWTSecret:                    or(t.JWT.Secret, "change-me"),
+		JWTTTLHours:                  orInt(t.JWT.TTLHours, 24),
+		AdminInitUsername:            or(t.AdminInit.Username, "admin"),
+		AdminInitPassword:            or(t.AdminInit.Password, "admin123"),
+		AdminInitName:                or(t.AdminInit.Name, "超级管理员"),
 		AdminDangerSecondaryPassword: t.AdminDanger.SecondaryPassword,
-		JudgeBaseURL:        or(t.Judge.BaseURL, "http://127.0.0.1:5050"),
-		JudgeLangs:          orSlice(t.Judge.Langs, []string{"c", "cpp", "java", "python"}),
-		JudgeDefaultCPU:     orInt(t.Judge.DefaultCPUMS, 1000),
-		JudgeDefaultMem:     orInt(t.Judge.DefaultMemMB, 256),
-		JudgeQueueWorkers:   orInt(t.Judge.QueueWorkers, 1),
-		JudgeQueueCap:       orInt(t.Judge.QueueCap, 256),
-		JudgeMaxWaitSeconds: orInt(t.Judge.MaxWaitSeconds, 120),
-		BifrostBaseURL:      t.AI.BifrostBaseURL,
-		BifrostAPIKey:       t.AI.BifrostAPIKey,
-		BifrostModel:        or(t.AI.BifrostModel, "deepseek-chat"),
-		AIEnabled:           t.AI.Enabled,
+		JudgeBaseURL:                 or(t.Judge.BaseURL, "http://127.0.0.1:5050"),
+		JudgeLangs:                   orSlice(t.Judge.Langs, []string{"c", "cpp", "java", "python"}),
+		JudgeDefaultCPU:              orInt(t.Judge.DefaultCPUMS, 1000),
+		JudgeDefaultMem:              orInt(t.Judge.DefaultMemMB, 256),
+		JudgeQueueWorkers:            orInt(t.Judge.QueueWorkers, 1),
+		JudgeQueueCap:                orInt(t.Judge.QueueCap, 256),
+		JudgeMaxWaitSeconds:          orInt(t.Judge.MaxWaitSeconds, 120),
+		BifrostBaseURL:               t.AI.BifrostBaseURL,
+		BifrostAPIKey:                t.AI.BifrostAPIKey,
+		BifrostModel:                 or(t.AI.BifrostModel, "deepseek-chat"),
+		AIEnabled:                    t.AI.Enabled,
+		AIQueueWorkers:               orInt(t.AI.QueueWorkers, 2),
+		AIQueueCap:                   orInt(t.AI.QueueCap, 32),
 		// 默认 180s：沿用旧 kindTimeout 里最长的 GenAll 预算。旧机型 / 短
 		// 推理只需要一个兜底上限；DeepSeek-V3 这类慢思考机型在 config.toml
 		// 里把它调到 600 即可。

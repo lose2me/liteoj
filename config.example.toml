@@ -41,6 +41,10 @@ enabled = true
 bifrost_base_url = "https://api.deepseek.com"
 bifrost_api_key = ""
 bifrost_model = "deepseek-v4-flash"
+# AI 并发 worker 数。2 表示最多同时跑 2 个 AI 任务；更多请求进入队列等待。
+queue_workers = 8
+# AI 队列缓冲区大小。队列满时新请求会直接返回“稍后重试”。
+queue_cap = 32
 # 单次 AI 调用最长等待秒数；覆盖所有 kind（analyze / optimize / tag / gen_*）。
 # 超过这个时间后端会把上下文取消、任务判失败，学生端按钮恢复可点。
 # 180 = 沿用内置默认；DeepSeek-V3 / R1 这类慢推理模型建议调到 600 ~ 1200。

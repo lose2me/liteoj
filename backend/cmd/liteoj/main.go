@@ -65,7 +65,7 @@ func main() {
 	aiClient := ai.NewFromConfig(cfg)
 	aiPrompts := ai.NewPrompts(cfg, aiClient)
 	aiQueue := ai.NewQueue(gdb, broker)
-	aiRunner := ai.NewRunner(gdb, aiQueue, aiPrompts, 2, 32,
+	aiRunner := ai.NewRunner(gdb, aiQueue, aiPrompts, cfg.AIQueueWorkers, cfg.AIQueueCap,
 		time.Duration(cfg.AIMaxWaitSeconds)*time.Second)
 
 	authH := &handlers.AuthHandler{DB: gdb, C: cfg}
