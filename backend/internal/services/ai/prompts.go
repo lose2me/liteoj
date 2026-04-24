@@ -81,11 +81,12 @@ const tagOutputSuffix = "\n\n严格只输出 JSON（不要包裹 ```，不要前
 
 // genAllOutputSuffix 强制"一键填充"返回严格 JSON，字段与 GenAllResult 对齐。
 // admin 可以改每个字段的节点 / 风格 / 长度，但不能改 schema。
-const genAllOutputSuffix = "\n\n输出必须是一个 JSON 对象，且**只**包含以下 4 个字段（键名逐字一致，顺序不限，不得新增额外键）：\n" +
+const genAllOutputSuffix = "\n\n输出必须是一个 JSON 对象，且**只**包含以下 5 个字段（键名逐字一致，顺序不限，不得新增额外键）：\n" +
 	"- `title` (string)\n" +
 	"- `description` (string)\n" +
 	"- `solution_idea_md` (string)\n" +
 	"- `solution_md` (string)\n" +
+	"- `testcases` (array of objects, each object must contain `input` and `expected_output` as strings)\n" +
 	"JSON 字符串内的换行一律用 `\\n` 转义；JSON 对象外**严禁**任何额外文字、解释、前后缀、或 Markdown 代码块包裹。"
 
 // AnalyzeWrongAnswer explains why a non-AC submission failed. Unlike the
@@ -296,7 +297,11 @@ func (p *Prompts) GenTitle(ctx context.Context, raw string) (string, string, str
 }
 
 func (p *Prompts) GenDesc(ctx context.Context, raw string) (string, string, string, error) {
-	return p.singleTextGen(ctx, raw, p.Cfg.AIPromptGenDesc, "prompt_gen_desc")
+	text, prompt, rawBody, err := p.singleTextGen(ctx, raw, p.Cfg.AIPromptGenDesc, "prompt_gen_desc")
+	if err != nil {
+		return "", prompt, rawBody, err
+	}
+	return normalizeGeneratedDescription(text), prompt, rawBody, nil
 }
 
 func (p *Prompts) GenIdea(ctx context.Context, raw string) (string, string, string, error) {
@@ -307,15 +312,23 @@ func (p *Prompts) GenExplain(ctx context.Context, raw string) (string, string, s
 	return p.singleTextGen(ctx, raw, p.Cfg.AIPromptGenExplain, "prompt_gen_explain")
 }
 
+// GeneratedTestcase is the explicit sample data extracted from the raw
+// statement. `input` may be empty for output-only problems.
+type GeneratedTestcase struct {
+	Input          string `json:"input"`
+	ExpectedOutput string `json:"expected_output"`
+}
+
 // GenAllResult is the structured payload returned by GenAll. Fields match
-// the problem columns the admin will paste into via 一键填充. Input/output
-// format and samples live inside `description` (as `## 输入格式` /
-// `## 输出格式` / `## 样例` sections), not as separate keys.
+// the problem columns the admin will paste into via 一键填充. Human-readable
+// input/output format and samples still live inside `description`; `testcases`
+// is the machine-usable testcase list extracted from explicit samples.
 type GenAllResult struct {
-	Title          string `json:"title"`
-	Description    string `json:"description"`
-	SolutionIdeaMD string `json:"solution_idea_md"`
-	SolutionMD     string `json:"solution_md"`
+	Title          string              `json:"title"`
+	Description    string              `json:"description"`
+	SolutionIdeaMD string              `json:"solution_idea_md"`
+	SolutionMD     string              `json:"solution_md"`
+	Testcases      []GeneratedTestcase `json:"testcases"`
 }
 
 // GenAll executes the merged "一键填充" prompt: a single model call that
@@ -348,7 +361,132 @@ func (p *Prompts) GenAll(ctx context.Context, raw string) (*GenAllResult, string
 	if err := json.Unmarshal([]byte(jsonText), &r); err != nil {
 		return nil, prompt, rawBody, errors.New(i18n.ErrAIOutputJSONParse(err))
 	}
+	r.Description = normalizeGeneratedDescription(r.Description)
+	r.Testcases = normalizeGeneratedTestcases(r.Testcases)
 	return &r, prompt, rawBody, nil
+}
+
+type markdownSection struct {
+	Heading string
+	Body    string
+}
+
+func normalizeGeneratedDescription(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	var preamble []string
+	var sections []markdownSection
+	currentHeading := ""
+	var bodyLines []string
+	flush := func() {
+		if currentHeading == "" {
+			return
+		}
+		sections = append(sections, markdownSection{
+			Heading: currentHeading,
+			Body:    strings.TrimRight(strings.Join(bodyLines, "\n"), "\n"),
+		})
+		bodyLines = nil
+	}
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(line, "## ") {
+			flush()
+			currentHeading = strings.TrimSpace(line)
+			continue
+		}
+		if currentHeading == "" {
+			preamble = append(preamble, line)
+			continue
+		}
+		bodyLines = append(bodyLines, line)
+	}
+	flush()
+	if len(sections) == 0 {
+		return strings.TrimSpace(s)
+	}
+	parts := make([]string, 0, len(sections)+1)
+	if pre := strings.TrimSpace(strings.Join(preamble, "\n")); pre != "" {
+		parts = append(parts, pre)
+	}
+	for _, sec := range sections {
+		if strings.HasPrefix(sec.Heading, "## 输入 #") && isEmptyGeneratedInputSample(sec.Body) {
+			continue
+		}
+		part := sec.Heading
+		if body := strings.TrimSpace(sec.Body); body != "" {
+			part += "\n\n" + body
+		}
+		parts = append(parts, part)
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+}
+
+func isEmptyGeneratedInputSample(body string) bool {
+	body = unwrapFencedBlock(body)
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	switch strings.TrimSpace(body) {
+	case "", "无", "无输入", "本题无输入", "(无)", "（无）":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeGeneratedTestcases(rows []GeneratedTestcase) []GeneratedTestcase {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]GeneratedTestcase, 0, len(rows))
+	seen := map[string]bool{}
+	for _, row := range rows {
+		input := normalizeGeneratedTestcaseInput(row.Input)
+		expected := normalizeGeneratedTestcaseOutput(row.ExpectedOutput)
+		if expected == "" {
+			continue
+		}
+		key := testcaseDedupKey(input, expected)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, GeneratedTestcase{
+			Input:          input,
+			ExpectedOutput: expected,
+		})
+	}
+	return out
+}
+
+func normalizeGeneratedTestcaseInput(s string) string {
+	s = unwrapFencedBlock(strings.ReplaceAll(s, "\r\n", "\n"))
+	if isEmptyGeneratedInputSample(s) {
+		return ""
+	}
+	return strings.TrimRight(s, "\n")
+}
+
+func normalizeGeneratedTestcaseOutput(s string) string {
+	s = unwrapFencedBlock(strings.ReplaceAll(s, "\r\n", "\n"))
+	return strings.TrimRight(s, "\n")
+}
+
+func unwrapFencedBlock(s string) string {
+	trimmed := strings.TrimSpace(s)
+	if !strings.HasPrefix(trimmed, "```") {
+		return s
+	}
+	firstNL := strings.IndexByte(trimmed, '\n')
+	lastFence := strings.LastIndex(trimmed, "\n```")
+	if firstNL < 0 || lastFence < firstNL {
+		return s
+	}
+	start := firstNL + 1
+	if lastFence < start {
+		return ""
+	}
+	return trimmed[start:lastFence]
 }
 
 // stripCodeFence drops a ```...``` wrapper if the model over-eagerly wrapped

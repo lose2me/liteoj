@@ -39,6 +39,41 @@ const aiAnyRunning = computed(() => aiRunning.value > 0 || aiLocalBusy.value)
 const showTC = ref(false)
 const tcForm = ref({ id: 0, input: '', expected_output: '', order_index: 0 })
 
+interface AIGeneratedTestcase {
+  input?: string
+  expected_output?: string
+}
+
+const testcaseKey = (input: string, output: string) =>
+  `${input.replace(/\r\n/g, '\n').replace(/\n+$/g, '')}\u0000${output.replace(/\r\n/g, '\n').replace(/\n+$/g, '')}`
+
+const appendGeneratedTestcasesLocally = (rows: AIGeneratedTestcase[]) => {
+  const seen = new Set(
+    testcases.value.map((tc) => testcaseKey(String(tc.input || ''), String(tc.expected_output || ''))),
+  )
+  let nextOrder = testcases.value.reduce((max, tc) => Math.max(max, Number(tc.order_index) || 0), 0)
+  const baseID = Date.now()
+  const appended: any[] = []
+  rows.forEach((row, idx) => {
+    const input = typeof row?.input === 'string' ? row.input : ''
+    const expected = typeof row?.expected_output === 'string' ? row.expected_output : ''
+    if (!expected) return
+    const key = testcaseKey(input, expected)
+    if (seen.has(key)) return
+    seen.add(key)
+    nextOrder += 1
+    appended.push({
+      id: -(baseID + idx),
+      input,
+      expected_output: expected,
+      order_index: nextOrder,
+    })
+  })
+  if (appended.length) {
+    testcases.value = [...testcases.value, ...appended]
+  }
+}
+
 const load = async () => {
   const { data } = await http.get(`/problems/${route.params.id}`)
   p.value = data.problem
@@ -200,6 +235,9 @@ const runAIGenAll = () => runAI(
     if (d.difficulty) p.value.difficulty = d.difficulty
     if (Array.isArray(d.tag_ids) && d.tag_ids.length) {
       tagIDs.value = Array.from(new Set([...tagIDs.value, ...d.tag_ids]))
+    }
+    if (Array.isArray(d.testcases) && d.testcases.length) {
+      appendGeneratedTestcasesLocally(d.testcases)
     }
   },
 )

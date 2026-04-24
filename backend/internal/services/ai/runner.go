@@ -294,8 +294,9 @@ func (r *Runner) execute(ctx context.Context, j Job) (any, string) {
 		}
 		r.queue.SetPrompt(j.TaskID, j.TaskStartedAt, joinAuditBlobs(prompt, tagPrompt, "AUTO TAG PROMPT"))
 		r.queue.SetOutput(j.TaskID, j.TaskStartedAt, joinAuditBlobs(raw, tagRaw, "AUTO TAG OUTPUT"))
-		// 把一键解析出来的四个字段回写到 Problem 行，只更新非空字段，admin
-		// 之前手动调整过但 AI 这轮没生成的字段不受影响。
+		// 把一键解析出来的结构化字段回写到 Problem 行；测试用例则按
+		// input/output 精确去重后追加，避免重复点击时堆出重复样例。
+		addedTestcases := 0
 		if j.ProblemID > 0 && res != nil {
 			updates := map[string]any{}
 			if res.Title != "" {
@@ -319,12 +320,19 @@ func (r *Runner) execute(ctx context.Context, j Job) (any, string) {
 			if sug != nil && len(sug.TagIDs) > 0 {
 				r.mergeCurrentProblemTags(j, sug.TagIDs)
 			}
+			if len(res.Testcases) > 0 {
+				addedTestcases = r.appendMissingProblemTestcases(j, res.Testcases)
+			}
 		}
 		out := map[string]any{
 			"title":            res.Title,
 			"description":      res.Description,
 			"solution_idea_md": res.SolutionIdeaMD,
 			"solution_md":      res.SolutionMD,
+			"testcases":        res.Testcases,
+		}
+		if addedTestcases > 0 {
+			out["testcases_added"] = addedTestcases
 		}
 		if sug != nil {
 			if sug.Difficulty != "" {
@@ -397,6 +405,69 @@ func (r *Runner) mergeCurrentProblemTags(j Job, tagIDs []uint) {
 		return
 	}
 	r.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&rows)
+}
+
+func (r *Runner) appendMissingProblemTestcases(j Job, generated []GeneratedTestcase) int {
+	if j.ProblemID == 0 || j.ProblemCreatedAt.IsZero() || len(generated) == 0 {
+		return 0
+	}
+	var prob models.Problem
+	if err := r.db.Select("id").Where("id = ? AND created_at = ?", j.ProblemID, j.ProblemCreatedAt).First(&prob).Error; err != nil {
+		return 0
+	}
+	var existing []models.Testcase
+	r.db.Where("problem_id = ?", prob.ID).Order("order_index ASC, id ASC").Find(&existing)
+	rows := buildMissingTestcaseRows(prob.ID, existing, generated)
+	if len(rows) == 0 {
+		return 0
+	}
+	if err := r.db.Create(&rows).Error; err != nil {
+		log.Printf("ai runner: append testcases for problem %d failed: %v", prob.ID, err)
+		return 0
+	}
+	return len(rows)
+}
+
+func buildMissingTestcaseRows(problemID uint, existing []models.Testcase, generated []GeneratedTestcase) []models.Testcase {
+	if problemID == 0 || len(generated) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	nextOrder := 0
+	for _, tc := range existing {
+		seen[testcaseDedupKey(tc.Input, tc.ExpectedOutput)] = true
+		if tc.OrderIndex > nextOrder {
+			nextOrder = tc.OrderIndex
+		}
+	}
+	rows := make([]models.Testcase, 0, len(generated))
+	for _, tc := range generated {
+		if strings.TrimSpace(tc.ExpectedOutput) == "" {
+			continue
+		}
+		key := testcaseDedupKey(tc.Input, tc.ExpectedOutput)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		nextOrder++
+		rows = append(rows, models.Testcase{
+			ProblemID:      problemID,
+			Input:          tc.Input,
+			ExpectedOutput: tc.ExpectedOutput,
+			OrderIndex:     nextOrder,
+		})
+	}
+	return rows
+}
+
+func testcaseDedupKey(input, expected string) string {
+	return normalizeTestcaseDedupText(input) + "\x1f" + normalizeTestcaseDedupText(expected)
+}
+
+func normalizeTestcaseDedupText(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.TrimRight(s, "\n")
 }
 
 func (r *Runner) loadTagDictionary() ([]models.TagGroup, map[uint][]models.Tag) {

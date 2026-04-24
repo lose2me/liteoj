@@ -42,6 +42,7 @@ const bulkUser = ref('')
 const bulkPwd = ref('')
 const bulkResult = ref<any>(null)
 const bulkSubmitting = ref(false)
+const bulkTextareaAutosize = { minRows: 16, maxRows: 16 }
 
 // `trim` at the split level so a trailing newline doesn't produce a phantom empty row.
 const splitLines = (s: string) => s.split(/\r?\n/).filter((line) => line.trim() !== '')
@@ -220,15 +221,30 @@ const pagination = { pageSize: 16 }
       <div class="bulk-grid">
         <div>
           <div class="bulk-col-title">{{ t.usersAdmin.bulkColName }}</div>
-          <NInput v-model:value="bulkName" type="textarea" :rows="16" class="bulk-textarea" />
+          <NInput
+            v-model:value="bulkName"
+            type="textarea"
+            :autosize="bulkTextareaAutosize"
+            class="bulk-textarea"
+          />
         </div>
         <div>
           <div class="bulk-col-title">{{ t.usersAdmin.bulkColUser }}</div>
-          <NInput v-model:value="bulkUser" type="textarea" :rows="16" class="bulk-textarea" />
+          <NInput
+            v-model:value="bulkUser"
+            type="textarea"
+            :autosize="bulkTextareaAutosize"
+            class="bulk-textarea"
+          />
         </div>
         <div>
           <div class="bulk-col-title">{{ t.usersAdmin.bulkColPwd }}</div>
-          <NInput v-model:value="bulkPwd" type="textarea" :rows="16" class="bulk-textarea" />
+          <NInput
+            v-model:value="bulkPwd"
+            type="textarea"
+            :autosize="bulkTextareaAutosize"
+            class="bulk-textarea"
+          />
         </div>
       </div>
       <div class="mt-2 text-xs opacity-70">{{ bulkHint }}</div>
@@ -260,13 +276,15 @@ const pagination = { pageSize: 16 }
   opacity: 0.7;
   margin-bottom: 4px;
 }
-.bulk-textarea :deep(.n-input__textarea-el) {
+:deep(.bulk-textarea textarea.n-input__textarea-el) {
   resize: none !important;
   min-height: 360px !important;
+  max-height: 360px !important;
 }
 
-.bulk-textarea :deep(textarea) {
+:deep(.bulk-textarea .n-input__textarea-el) {
   resize: none !important;
   min-height: 360px !important;
+  max-height: 360px !important;
 }
 </style>
