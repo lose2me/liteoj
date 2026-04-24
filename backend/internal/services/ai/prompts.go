@@ -353,17 +353,26 @@ func (p *Prompts) GenAll(ctx context.Context, raw string) (*GenAllResult, string
 	if err != nil {
 		return nil, prompt, rawBody, err
 	}
-	jsonText := extractJSONObject(out)
-	if jsonText == "" {
-		return nil, prompt, rawBody, errors.New(i18n.ErrAIOutputNotJSON(out))
+	res, parseErr := parseGenAllOutput(out)
+	if parseErr == nil {
+		return res, prompt, rawBody, nil
 	}
-	var r GenAllResult
-	if err := json.Unmarshal([]byte(jsonText), &r); err != nil {
-		return nil, prompt, rawBody, errors.New(i18n.ErrAIOutputJSONParse(err))
+	retryMessages := append(append([]Message{}, messages...),
+		Message{Role: "assistant", Content: out},
+		Message{Role: "user", Content: genAllRetryInstruction(parseErr)},
+	)
+	retryFollowup := formatMessages(retryMessages[len(messages):])
+	retryOut, retryRawBody, err := p.Client.Chat(ctx, retryMessages)
+	combinedPrompt := joinAuditBlobs(prompt, retryFollowup, "RETRY PROMPT")
+	combinedRawBody := joinAuditBlobs(rawBody, retryRawBody, "RETRY OUTPUT")
+	if err != nil {
+		return nil, combinedPrompt, combinedRawBody, err
 	}
-	r.Description = normalizeGeneratedDescription(r.Description)
-	r.Testcases = normalizeGeneratedTestcases(r.Testcases)
-	return &r, prompt, rawBody, nil
+	retryRes, retryErr := parseGenAllOutput(retryOut)
+	if retryErr != nil {
+		return nil, combinedPrompt, combinedRawBody, retryErr
+	}
+	return retryRes, combinedPrompt, combinedRawBody, nil
 }
 
 type markdownSection struct {
@@ -487,6 +496,52 @@ func unwrapFencedBlock(s string) string {
 		return ""
 	}
 	return trimmed[start:lastFence]
+}
+
+func parseGenAllOutput(out string) (*GenAllResult, error) {
+	jsonText := extractJSONObject(out)
+	if jsonText == "" {
+		return nil, errors.New(i18n.ErrAIOutputNotJSON(out))
+	}
+	var r GenAllResult
+	if err := json.Unmarshal([]byte(jsonText), &r); err != nil {
+		return nil, errors.New(i18n.ErrAIOutputJSONParse(err))
+	}
+	r.Description = normalizeGeneratedDescription(r.Description)
+	r.Testcases = normalizeGeneratedTestcases(r.Testcases)
+	return &r, nil
+}
+
+func genAllRetryInstruction(parseErr error) string {
+	msg := "上一条输出没有通过 JSON 解析。请基于同一题目原文，重新完整输出一次最终答案。"
+	if reason := compactGenAllRetryReason(parseErr); reason != "" {
+		msg += "\n解析错误：" + reason
+	}
+	return msg + "\n" +
+		"要求保持不变：\n" +
+		"- 只输出一个合法 JSON 对象，不要解释，不要 Markdown 代码块\n" +
+		"- 5 个字段 `title` / `description` / `solution_idea_md` / `solution_md` / `testcases` 必须全部出现\n" +
+		"- JSON 字符串中的双引号、反斜杠、换行必须正确转义；代码里的 `\"`、`\\n` 也要合法\n" +
+		"- `testcases` 是数组，元素只含 `input` 和 `expected_output` 两个字符串字段"
+}
+
+func compactGenAllRetryReason(parseErr error) string {
+	if parseErr == nil {
+		return ""
+	}
+	msg := strings.TrimSpace(parseErr.Error())
+	if msg == "" {
+		return ""
+	}
+	const prefixNotJSON = "模型输出无法解析为 JSON："
+	if strings.HasPrefix(msg, prefixNotJSON) {
+		return "没有提取到合法 JSON 对象"
+	}
+	const prefixBadJSON = "模型输出 JSON 解析失败："
+	if strings.HasPrefix(msg, prefixBadJSON) {
+		return strings.TrimSpace(strings.TrimPrefix(msg, prefixBadJSON))
+	}
+	return msg
 }
 
 // stripCodeFence drops a ```...``` wrapper if the model over-eagerly wrapped

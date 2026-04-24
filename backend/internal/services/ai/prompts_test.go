@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/liteoj/liteoj/backend/internal/config"
@@ -137,5 +138,59 @@ func TestGenAll_NormalizesDescriptionAndTestcases(t *testing.T) {
 	}
 	if got.Testcases[0].Input != "" || got.Testcases[0].ExpectedOutput != "Hello World" {
 		t.Fatalf("unexpected testcase normalization result: %#v", got.Testcases[0])
+	}
+}
+
+func TestGenAll_RetriesOnceOnInvalidJSON(t *testing.T) {
+	var calls atomic.Int32
+	validPayload, err := json.Marshal(map[string]any{
+		"title":            "字符图形",
+		"description":      "## 题目描述\n\n输出字符图形。\n\n## 输入格式\n\n本题无输入。\n\n## 输出格式\n\n输出一个 10×18 的图形。\n\n## 输出 #1\n\n```\nABCDEFGHIJKLMNOPQR\n```\n\n## 数据范围\n\n无。",
+		"solution_idea_md": "## 算法分析\n\n按行输出。\n\n## 实现要点\n\n- 处理前缀反向部分\n\n## 复杂度分析\n\n时间复杂度 $O(nm)$，空间复杂度 $O(1)$",
+		"solution_md":      "## 题目分析\n\n按规律构造。\n\n## 算法与做法\n\n逐行生成。\n\n## 参考实现\n\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\nint main(){ return 0; }\n```\n\n## 复杂度分析\n\n时间复杂度 $O(nm)$，空间复杂度 $O(1)$",
+		"testcases": []map[string]string{
+			{"input": "", "expected_output": "ABCDEFGHIJKLMNOPQR"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch calls.Add(1) {
+		case 1:
+			invalid := "{\"title\":\"字符图形\",\"description\":\"ok\",\"solution_idea_md\":\"ok\",\"solution_md\":\"```cpp\\nprintf(\"%d\", 1);\\n```\",\"testcases\":[]}"
+			writeChatResponse(t, w, invalid)
+		default:
+			writeChatResponse(t, w, string(validPayload))
+		}
+	}))
+	defer srv.Close()
+
+	p := NewPrompts(&config.Config{
+		AIEnabled:      true,
+		BifrostBaseURL: srv.URL,
+		BifrostAPIKey:  "test",
+		BifrostModel:   "test",
+		AIPromptGenAll: "prompt",
+	}, &Client{BaseURL: srv.URL, APIKey: "test", Model: "test", HTTP: &http.Client{}})
+
+	got, prompt, _, err := p.GenAll(context.Background(), "raw")
+	if err != nil {
+		t.Fatalf("GenAll retry: %v", err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("expected exactly 2 calls, got %d", calls.Load())
+	}
+	if got.Title != "字符图形" {
+		t.Fatalf("unexpected result after retry: %#v", got)
+	}
+	if !strings.Contains(prompt, "RETRY PROMPT") {
+		t.Fatalf("audit prompt should record retry, got: %s", prompt)
+	}
+	if strings.Count(prompt, "## system") != 1 {
+		t.Fatalf("retry audit should not duplicate original prompt, got: %s", prompt)
+	}
+	if strings.Count(prompt, `printf("%d", 1);`) != 1 {
+		t.Fatalf("broken output should appear exactly once in retry audit, got: %s", prompt)
 	}
 }

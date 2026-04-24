@@ -12,14 +12,21 @@ function clampStep(step: number) {
   return Math.min(MAX_STEP, Math.max(MIN_STEP, step))
 }
 
-function readStoredStep(key: string, fallbackKey?: string) {
+function readStoredStep(key: string) {
   const current = Number(localStorage.getItem(key))
   if (Number.isFinite(current)) return clampStep(current)
-  if (fallbackKey) {
-    const legacy = Number(localStorage.getItem(fallbackKey))
-    if (Number.isFinite(legacy)) return clampStep(legacy)
-  }
   return 0
+}
+
+function migrateLegacyStep(key: string, legacyKey: string) {
+  const current = Number(localStorage.getItem(key))
+  if (Number.isFinite(current)) return clampStep(current)
+  const legacy = Number(localStorage.getItem(legacyKey))
+  if (!Number.isFinite(legacy)) return 0
+  const step = clampStep(legacy)
+  localStorage.setItem(key, String(step))
+  localStorage.removeItem(legacyKey)
+  return step
 }
 
 export function matchEditorZoomShortcut(
@@ -81,7 +88,7 @@ export const useCodeEditorZoomStore = defineStore('codeEditorZoom', {
   },
   actions: {
     hydrate() {
-      this.step = readStoredStep(CODE_KEY, LEGACY_KEY)
+      this.step = migrateLegacyStep(CODE_KEY, LEGACY_KEY)
     },
     persist() {
       localStorage.setItem(CODE_KEY, String(this.step))
