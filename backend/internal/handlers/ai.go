@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -40,7 +39,8 @@ func (h *AIHandler) Analyze(c *gin.Context) {
 		return
 	}
 	uid := middleware.CurrentUserID(c)
-	if middleware.CurrentRole(c) != models.RoleAdmin && sub.UserID != uid {
+	isAdmin := middleware.CurrentRole(c) == models.RoleAdmin
+	if !isAdmin && sub.UserID != uid {
 		c.JSON(http.StatusForbidden, gin.H{"error": i18n.ErrForbidden})
 		return
 	}
@@ -57,8 +57,19 @@ func (h *AIHandler) Analyze(c *gin.Context) {
 		}
 	}
 	if sub.AIExplanation != "" {
-		c.JSON(http.StatusOK, gin.H{"explanation": sub.AIExplanation, "cached": true})
-		return
+		if isAdmin && isLegacyAnalyzeEnvelope(sub.AIExplanation) {
+			h.DB.Model(&sub).Updates(map[string]any{
+				"ai_explanation":   "",
+				"ai_rejected":      false,
+				"ai_reject_reason": "",
+			})
+			sub.AIExplanation = ""
+			sub.AIRejected = false
+			sub.AIRejectReason = ""
+		} else {
+			c.JSON(http.StatusOK, gin.H{"explanation": sub.AIExplanation, "cached": true})
+			return
+		}
 	}
 	// 此前被 AI 判为"未认真作答"而拒绝分析的提交，允许学生再次触发——
 	// 但先把 rejected 状态清掉，这样新任务写回 explanation/rejected 时
@@ -80,15 +91,15 @@ func (h *AIHandler) Analyze(c *gin.Context) {
 	// 可能输出 ok=false，但 runner 看到 ForceAnalyze 后不走拒绝流程、照样
 	// 把 explanation（或原文）写回 ai_explanation。学生点自己的提交仍然按
 	// 正常判定。
-	isAdmin := middleware.CurrentRole(c) == models.RoleAdmin
-	taskID := h.Queue.Start(models.AITaskKindAnalyze, uid, middleware.CurrentUsername(c),
-		fmt.Sprintf("submission #%d", sub.ID))
+	taskID, taskStartedAt := h.Queue.Start(models.AITaskKindAnalyze, uid, middleware.CurrentUsername(c),
+		i18n.AITaskSubjectSubmission(sub.ID))
 	if err := h.Runner.Enqueue(ai.Job{
-		TaskID: taskID, Kind: models.AITaskKindAnalyze,
-		UserID: uid, SubmissionID: sub.ID,
+		TaskID: taskID, TaskStartedAt: taskStartedAt, Kind: models.AITaskKindAnalyze,
+		UserID: uid, ProblemID: prob.ID, ProblemCreatedAt: prob.CreatedAt,
+		SubmissionID: sub.ID, SubmissionCreatedAt: sub.CreatedAt,
 		ForceAnalyze: isAdmin,
 	}); err != nil {
-		h.Queue.End(taskID, err.Error())
+		h.Queue.End(taskID, taskStartedAt, models.AITaskKindAnalyze, err.Error())
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
@@ -107,14 +118,19 @@ func (h *AIHandler) startAuthoringTask(c *gin.Context, kind string) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": i18n.ErrBadRequest})
 		return
 	}
+	var prob models.Problem
+	if err := h.DB.Select("id, created_at").First(&prob, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": i18n.ErrProblemNotFound})
+		return
+	}
 	uid := middleware.CurrentUserID(c)
-	taskID := h.Queue.Start(kind, uid, middleware.CurrentUsername(c),
-		fmt.Sprintf("problem #%d", id))
+	taskID, taskStartedAt := h.Queue.Start(kind, uid, middleware.CurrentUsername(c),
+		i18n.AITaskSubjectProblem(uint(id)))
 	if err := h.Runner.Enqueue(ai.Job{
-		TaskID: taskID, Kind: kind,
-		UserID: uid, ProblemID: uint(id), Raw: body.Raw,
+		TaskID: taskID, TaskStartedAt: taskStartedAt, Kind: kind,
+		UserID: uid, ProblemID: prob.ID, ProblemCreatedAt: prob.CreatedAt, Raw: body.Raw,
 	}); err != nil {
-		h.Queue.End(taskID, err.Error())
+		h.Queue.End(taskID, taskStartedAt, kind, err.Error())
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
@@ -160,13 +176,14 @@ func (h *AIHandler) Optimize(c *gin.Context) {
 		return
 	}
 	_ = prob
-	taskID := h.Queue.Start(models.AITaskKindOptimize, uid, middleware.CurrentUsername(c),
-		fmt.Sprintf("submission #%d", sub.ID))
+	taskID, taskStartedAt := h.Queue.Start(models.AITaskKindOptimize, uid, middleware.CurrentUsername(c),
+		i18n.AITaskSubjectSubmission(sub.ID))
 	if err := h.Runner.Enqueue(ai.Job{
-		TaskID: taskID, Kind: models.AITaskKindOptimize,
-		UserID: uid, SubmissionID: sub.ID,
+		TaskID: taskID, TaskStartedAt: taskStartedAt, Kind: models.AITaskKindOptimize,
+		UserID: uid, ProblemID: prob.ID, ProblemCreatedAt: prob.CreatedAt,
+		SubmissionID: sub.ID, SubmissionCreatedAt: sub.CreatedAt,
 	}); err != nil {
-		h.Queue.End(taskID, err.Error())
+		h.Queue.End(taskID, taskStartedAt, models.AITaskKindOptimize, err.Error())
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
@@ -243,7 +260,7 @@ func (h *AIHandler) GetTask(c *gin.Context) {
 // SSE so the UI also updates immediately when a task finishes.
 func (h *AIHandler) RunningForProblem(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	subject := fmt.Sprintf("problem #%d", id)
+	subject := i18n.AITaskSubjectProblem(uint(id))
 	var count int64
 	h.DB.Model(&models.AITask{}).
 		Where("subject = ? AND status = ?", subject, models.AITaskStatusRunning).

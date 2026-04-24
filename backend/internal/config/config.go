@@ -23,6 +23,9 @@ type Config struct {
 	AdminInitUsername string
 	AdminInitPassword string
 	AdminInitName     string
+	// AdminDangerSecondaryPassword gates destructive admin-only actions such as
+	// clearing all business data while preserving the tag dictionary.
+	AdminDangerSecondaryPassword string
 
 	JudgeBaseURL      string
 	JudgeLangs        []string
@@ -84,6 +87,10 @@ type tomlConfig struct {
 		Name     string `toml:"name"`
 	} `toml:"admin_init"`
 
+	AdminDanger struct {
+		SecondaryPassword string `toml:"secondary_password"`
+	} `toml:"admin_danger"`
+
 	Judge struct {
 		BaseURL        string   `toml:"base_url"`
 		Langs          []string `toml:"langs"`
@@ -144,6 +151,7 @@ func Load() *Config {
 		AdminInitUsername:   or(t.AdminInit.Username, "admin"),
 		AdminInitPassword:   or(t.AdminInit.Password, "admin123"),
 		AdminInitName:       or(t.AdminInit.Name, "超级管理员"),
+		AdminDangerSecondaryPassword: t.AdminDanger.SecondaryPassword,
 		JudgeBaseURL:        or(t.Judge.BaseURL, "http://127.0.0.1:5050"),
 		JudgeLangs:          orSlice(t.Judge.Langs, []string{"c", "cpp", "java", "python"}),
 		JudgeDefaultCPU:     orInt(t.Judge.DefaultCPUMS, 1000),

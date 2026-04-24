@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -20,26 +21,31 @@ import (
 )
 
 func main() {
-	startedAt := time.Now()
 	cfg := config.Load()
+
+	switch strings.ToLower(strings.TrimSpace(cfg.AppMode)) {
+	case "release", "prod", "production":
+		gin.SetMode(gin.ReleaseMode)
+	case "test":
+		gin.SetMode(gin.TestMode)
+	default:
+		gin.SetMode(gin.DebugMode)
+	}
 
 	gdb, err := db.Open(cfg)
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}
-	if err := db.Migrate(gdb); err != nil {
-		log.Fatalf("migrate: %v", err)
+	if err := db.EnsureSchema(gdb); err != nil {
+		log.Fatalf("db schema: %v", err)
 	}
 	if err := seed.EnsureAdmin(gdb, cfg); err != nil {
 		log.Fatalf("seed admin: %v", err)
 	}
-	if err := seed.EnsureTestData(gdb); err != nil {
-		log.Fatalf("seed testdata: %v", err)
+	if err := seed.EnsureTaxonomy(gdb); err != nil {
+		log.Fatalf("seed taxonomy: %v", err)
 	}
 
-	if cfg.AppMode == "prod" {
-		gin.SetMode(gin.ReleaseMode)
-	}
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger())
 	r.Use(cors.New(cors.Config{
@@ -72,10 +78,6 @@ func main() {
 	statsH := &handlers.StatsHandler{DB: gdb}
 	rankH := &handlers.RankingHandler{DB: gdb}
 	adminStatsH := &handlers.AdminStatsHandler{DB: gdb}
-	adminStatusH := &handlers.AdminStatusHandler{
-		StartedAt: startedAt, JudgeBase: cfg.JudgeBaseURL,
-		JudgeClient: judgeClient, Queue: queue,
-	}
 	eventsH := &handlers.EventsHandler{Broker: broker}
 	homeH := &handlers.HomeHandler{DB: gdb, Broker: broker}
 
@@ -129,7 +131,6 @@ func main() {
 			{
 				admin.GET("/stats", adminStatsH.Overview)
 				admin.GET("/online", adminStatsH.OnlineUsers)
-				admin.GET("/system/status", adminStatusH.Status)
 				admin.GET("/ai/tasks", aiH.ListTasks)
 				admin.GET("/ai/tasks/:id", aiH.GetTask)
 
@@ -140,6 +141,7 @@ func main() {
 				admin.POST("/users/bulk", adminH.BulkCreateUsers)
 				admin.GET("/users/:id/profile", adminH.UserProfile)
 				admin.PUT("/home", adminH.UpdateHome)
+				admin.POST("/reset-data", adminH.ResetData)
 
 				admin.POST("/problems", adminH.CreateProblem)
 				admin.PUT("/problems/:id", adminH.UpdateProblem)

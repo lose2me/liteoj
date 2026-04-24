@@ -1,7 +1,6 @@
 package seed
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -15,7 +14,7 @@ import (
 // EnsureTestData seeds tag dictionary + a minimal dataset when the db is empty.
 // Safe to call on every boot — idempotent via per-table "is empty?" checks.
 func EnsureTestData(db *gorm.DB) error {
-	if err := ensureTaxonomy(db); err != nil {
+	if err := EnsureTaxonomy(db); err != nil {
 		return err
 	}
 	if err := ensureSampleProblems(db); err != nil {
@@ -26,8 +25,8 @@ func EnsureTestData(db *gorm.DB) error {
 	return EnsureAuditScenarios(db)
 }
 
-// ensureTaxonomy installs the 22-group knowledge taxonomy when TagGroup is empty.
-func ensureTaxonomy(db *gorm.DB) error {
+// EnsureTaxonomy installs the default tag dictionary when TagGroup is empty.
+func EnsureTaxonomy(db *gorm.DB) error {
 	var count int64
 	db.Model(&models.TagGroup{}).Count(&count)
 	if count > 0 {
@@ -136,7 +135,6 @@ func ensureSampleProblems(db *gorm.DB) error {
 		TimeLimitMS:   1000,
 		MemoryLimitMB: 256,
 		Visible:       true,
-		TagsJSON:      toJSON(nonZero([]uint{tagID("顺序结构")})),
 	}
 
 	// --- Problem 2: 最大公约数 (入门，验证 \gcd 与中文标点边界) ---
@@ -160,7 +158,6 @@ func ensureSampleProblems(db *gorm.DB) error {
 		TimeLimitMS:   1000,
 		MemoryLimitMB: 256,
 		Visible:       true,
-		TagsJSON:      toJSON(nonZero([]uint{tagID("最大公约数 gcd")})),
 	}
 
 	// --- Problem 3: 斐波那契数 (简单，演示块公式 + 组合数学 tag) ---
@@ -184,9 +181,6 @@ func ensureSampleProblems(db *gorm.DB) error {
 		TimeLimitMS:   1000,
 		MemoryLimitMB: 256,
 		Visible:       true,
-		TagsJSON: toJSON(nonZero([]uint{
-			tagID("线性 DP"), tagID("递推"), tagID("Fibonacci 数列"),
-		})),
 	}
 
 	// --- Problem 4: 最短路径 (中等，验证矩阵 / 求和公式 / 图论 tag) ---
@@ -209,9 +203,6 @@ func ensureSampleProblems(db *gorm.DB) error {
 		TimeLimitMS:   1500,
 		MemoryLimitMB: 256,
 		Visible:       true,
-		TagsJSON: toJSON(nonZero([]uint{
-			tagID("最短路"), tagID("优先队列"), tagID("图遍历"),
-		})),
 	}
 
 	// --- Problem 5: 表达式求值 (困难，演示多块公式 + 栈 tag) ---
@@ -235,18 +226,29 @@ func ensureSampleProblems(db *gorm.DB) error {
 		TimeLimitMS:   2000,
 		MemoryLimitMB: 256,
 		Visible:       true,
-		TagsJSON: toJSON(nonZero([]uint{
-			tagID("栈"), tagID("模拟"), tagID("分类讨论"),
-		})),
 	}
 
-	probs := []*models.Problem{&p1, &p2, &p3, &p4, &p5}
-	for _, p := range probs {
-		p.CreatedBy = 1 // admin seeded by EnsureAdmin is id=1
-		if err := db.Create(p).Error; err != nil {
+	type seededProblem struct {
+		Problem *models.Problem
+		TagIDs  []uint
+	}
+	seededProblems := []seededProblem{
+		{Problem: &p1, TagIDs: nonZero([]uint{tagID("顺序结构")})},
+		{Problem: &p2, TagIDs: nonZero([]uint{tagID("最大公约数 gcd")})},
+		{Problem: &p3, TagIDs: nonZero([]uint{tagID("线性 DP"), tagID("递推"), tagID("Fibonacci 数列")})},
+		{Problem: &p4, TagIDs: nonZero([]uint{tagID("最短路"), tagID("优先队列"), tagID("图遍历")})},
+		{Problem: &p5, TagIDs: nonZero([]uint{tagID("栈"), tagID("模拟"), tagID("分类讨论")})},
+	}
+	for _, item := range seededProblems {
+		item.Problem.CreatedBy = 1 // admin seeded by EnsureAdmin is id=1
+		if err := db.Create(item.Problem).Error; err != nil {
+			return err
+		}
+		if err := attachProblemTags(db, item.Problem.ID, item.TagIDs); err != nil {
 			return err
 		}
 	}
+	probs := []*models.Problem{&p1, &p2, &p3, &p4, &p5}
 
 	// Padding problems: 30 入门级变种，支撑"综合练习 · 30 题"题单，让 UI 能看到
 	// 超过 30 道题时的翻页、表格与进度展示。描述简短、tag 统一挂到"顺序结构"。
@@ -270,10 +272,12 @@ func ensureSampleProblems(db *gorm.DB) error {
 			TimeLimitMS:   1000,
 			MemoryLimitMB: 256,
 			Visible:       true,
-			TagsJSON:      toJSON(nonZero([]uint{seqTag})),
 			CreatedBy:     1,
 		}
 		if err := db.Create(&p).Error; err != nil {
+			return err
+		}
+		if err := attachProblemTags(db, p.ID, nonZero([]uint{seqTag})); err != nil {
 			return err
 		}
 		padding = append(padding, &p)
@@ -753,14 +757,6 @@ func seedAITasks(db *gorm.DB, students []models.User) error {
 	return nil
 }
 
-func toJSON(ids []uint) string {
-	if len(ids) == 0 {
-		return ""
-	}
-	b, _ := json.Marshal(ids)
-	return string(b)
-}
-
 func nonZero(ids []uint) []uint {
 	out := make([]uint, 0, len(ids))
 	for _, id := range ids {
@@ -769,6 +765,23 @@ func nonZero(ids []uint) []uint {
 		}
 	}
 	return out
+}
+
+func attachProblemTags(db *gorm.DB, problemID uint, tagIDs []uint) error {
+	tagIDs = nonZero(tagIDs)
+	if len(tagIDs) == 0 {
+		return nil
+	}
+	seen := make(map[uint]bool, len(tagIDs))
+	rows := make([]models.ProblemTag, 0, len(tagIDs))
+	for _, tagID := range tagIDs {
+		if seen[tagID] {
+			continue
+		}
+		seen[tagID] = true
+		rows = append(rows, models.ProblemTag{ProblemID: problemID, TagID: tagID})
+	}
+	return db.Create(&rows).Error
 }
 
 // paddingOp returns the arithmetic spec for the i-th padding problem. i in

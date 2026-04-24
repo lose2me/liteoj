@@ -27,6 +27,7 @@ const restrictions = ref({ idea: false, solution: false, ai: false })
 // 题单页取 problem_set_id=当前题单 的提交。题单禁用 AI 时后端不返回；这里
 // 再以 type 字段区分"上一次解析"（非 AC）与"上一次优化"（AC）。
 const myLatestAI = ref<{ submission_id: number; verdict: string; explanation: string; type: 'analyze' | 'optimize' } | null>(null)
+const detailTab = ref<'desc' | 'idea' | 'solution' | 'ai'>('desc')
 // 本次判完提交的 AI 状态——按钮直接落在 result 区，不跳 SubmissionDetail。
 // ai_busy=true：已发起、等 SSE。aiPendingTaskId 用于匹配 ai:task:done 事件。
 const aiBusy = ref(false)
@@ -48,6 +49,16 @@ const alertType = computed<AlertType>(() => {
 
 const codeKey = (pid: string | number, l: string) => `liteoj.code.${pid}.${l}`
 
+const normalizeDetailTab = () => {
+  if (detailTab.value === 'idea' && !problem.value?.solution_idea_md) {
+    detailTab.value = 'desc'
+  } else if (detailTab.value === 'solution' && !problem.value?.solution_md) {
+    detailTab.value = 'desc'
+  } else if (detailTab.value === 'ai' && !myLatestAI.value) {
+    detailTab.value = 'desc'
+  }
+}
+
 const load = async () => {
   const { data } = await http.get(`/problems/${route.params.id}`, {
     params: psid.value ? { problemset_id: psid.value } : {},
@@ -63,6 +74,7 @@ const load = async () => {
     ai: !!data.disable_ai,
   }
   myLatestAI.value = data.my_latest_ai || null
+  normalizeDetailTab()
 }
 
 const onLangChange = (v: string) => {
@@ -130,11 +142,6 @@ const canOptimize = computed(() =>
   && !result.value.ai_disabled
   && !result.value.ai_explanation,
 )
-// 结果区的 AI section 标题跟着 verdict 走：AC 时用"AI 优化"，否则用"AI 解析"。
-const aiSectionTitle = computed(() =>
-  result.value?.verdict === 'AC' ? t.submission.aiOptimizeTitle : t.submission.aiAnalyzeTitle,
-)
-
 const refreshCurrentSubmission = async () => {
   if (!result.value?.submission_id) return
   const { data } = await http.get(`/submissions/${result.value.submission_id}`)
@@ -145,6 +152,11 @@ const refreshCurrentSubmission = async () => {
     ai_reject_reason: data.ai_reject_reason || '',
     ai_explanation: data.ai_explanation || '',
   }
+}
+
+const focusLatestAITab = async () => {
+  await load()
+  if (myLatestAI.value) detailTab.value = 'ai'
 }
 
 const runAI = async (endpoint: 'analyze' | 'optimize') => {
@@ -159,8 +171,9 @@ const runAI = async (endpoint: 'analyze' | 'optimize') => {
   try {
     const { data } = await http.post(`/submissions/${result.value.submission_id}/${endpoint}`)
     if (data?.cached || data?.explanation) {
-      // 缓存命中：直接在结果区展开 markdown，不必等 SSE。
+      // 提交区不再内联展示 AI 正文；命中缓存时直接刷新左侧“上一次解析/优化”。
       result.value.ai_explanation = data.explanation
+      await focusLatestAITab()
       aiBusy.value = false
       return
     }
@@ -231,8 +244,7 @@ onMounted(async () => {
     try {
       if (d.status === 'done') {
         await refreshCurrentSubmission()
-        // 解析/优化成功后顺手重跑 load() 刷新右侧 "上一次解析/优化" tab。
-        await load()
+        await focusLatestAITab()
       } else {
         msg.error(result.value?.verdict === 'AC'
           ? t.submission.aiOptimizeFailed
@@ -274,7 +286,7 @@ onUnmounted(() => {
         <NTag v-for="tag in tags" :key="tag.id" size="small">{{ tag.name }}</NTag>
       </NSpace>
 
-      <NTabs type="line" animated>
+      <NTabs v-model:value="detailTab" type="line" animated>
         <NTabPane name="desc" :tab="t.problem.descTitle">
           <MarkdownView :content="problem.description" />
         </NTabPane>
@@ -337,7 +349,7 @@ onUnmounted(() => {
         </div>
         <!-- 判完后的 AI 入口：非 AC → AI 解析；AC → AI 优化；被拒则用灰
              tag 展示原因；题单 disable_ai 时按钮都不出现。 -->
-        <NSpace v-if="canAnalyze || canOptimize || result.ai_rejected || result.ai_explanation" class="mt-3" align="center">
+        <NSpace v-if="canAnalyze || canOptimize || result.ai_rejected" class="mt-3" align="center">
           <NButton v-if="canAnalyze" :loading="aiBusy" type="primary" size="small" @click="analyze">
             {{ t.submission.aiAnalyze }}
           </NButton>
@@ -348,12 +360,6 @@ onUnmounted(() => {
             {{ t.submission.aiRejectedBadge(result.ai_reject_reason || '') }}
           </NButton>
         </NSpace>
-        <div v-if="result.ai_explanation && !result.ai_rejected" class="mt-3">
-          <h4 class="mt-0 mb-2">{{ aiSectionTitle }}</h4>
-          <NCard embedded>
-            <MarkdownView :content="result.ai_explanation" />
-          </NCard>
-        </div>
       </div>
     </NCard>
   </div>

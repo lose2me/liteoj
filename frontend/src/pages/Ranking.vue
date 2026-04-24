@@ -10,7 +10,6 @@ import { t } from '../i18n'
 const props = defineProps<{
   endpoint?: string
   hideScope?: boolean        // 题单内：不需要时间范围选择
-  noCard?: boolean           // 保留旧 prop 兼容 ProblemsetDetail 的调用；无实际影响
 }>()
 
 const user = useUserStore()

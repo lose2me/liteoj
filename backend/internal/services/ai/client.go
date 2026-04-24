@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/liteoj/liteoj/backend/internal/config"
+	"github.com/liteoj/liteoj/backend/internal/i18n"
 )
 
 // Client is an OpenAI-compatible chat completions client suitable for Bifrost.
@@ -60,7 +60,7 @@ type chatResp struct {
 // show the response that broke things.
 func (c *Client) Chat(ctx context.Context, messages []Message) (string, string, error) {
 	if c.BaseURL == "" || c.APIKey == "" {
-		return "", "", errors.New("ai: BIFROST_BASE_URL / BIFROST_API_KEY not configured")
+		return "", "", errors.New(i18n.ErrAIConfigMissing)
 	}
 	body, _ := json.Marshal(chatReq{Model: c.Model, Messages: messages})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
@@ -82,17 +82,17 @@ func (c *Client) Chat(ctx context.Context, messages []Message) (string, string, 
 		// io.ReadAll returned partial bytes — silently dropping that error
 		// hands a half-formed JSON to the parser and produces "unexpected end
 		// of JSON input", masking the real cause.
-		return "", raw, fmt.Errorf("ai: read response body: %w", readErr)
+		return "", raw, errors.New(i18n.ErrAIReadResponse(readErr))
 	}
 	if resp.StatusCode/100 != 2 {
-		return "", raw, fmt.Errorf("ai: %d %s", resp.StatusCode, raw)
+		return "", raw, errors.New(i18n.ErrAINon2xxResponse(resp.StatusCode, raw))
 	}
 	var out chatResp
 	if err := json.Unmarshal(data, &out); err != nil {
-		return "", raw, fmt.Errorf("ai: parse response: %w", err)
+		return "", raw, errors.New(i18n.ErrAIParseResponse(err))
 	}
 	if len(out.Choices) == 0 {
-		return "", raw, errors.New("ai: empty response")
+		return "", raw, errors.New(i18n.ErrAIEmptyResponse)
 	}
 	return out.Choices[0].Message.Content, raw, nil
 }

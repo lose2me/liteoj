@@ -7,7 +7,7 @@ import type { SelectOption } from 'naive-ui'
 import { h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { http } from '../../api/http'
-import { verdictType, verdictLabel } from '../../api/verdict'
+import { verdictType, verdictKeys } from '../../api/verdict'
 import VerdictPie from '../../components/VerdictPie.vue'
 import { t } from '../../i18n'
 
@@ -50,7 +50,7 @@ onMounted(async () => {
 
 const verdictOptions: SelectOption[] = [
   { label: t.common.all, value: '' },
-  ...Object.keys(verdictLabel).map((k) => ({ label: k, value: k })),
+  ...verdictKeys.map((k) => ({ label: k, value: k })),
 ]
 
 const subsColumns = [

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -222,13 +221,13 @@ func (h *SubmissionHandler) List(c *gin.Context) {
 		AIRejectReason   string `json:"ai_reject_reason,omitempty"`
 	}
 
-	// 批量查"这一页提交里正在跑 AI 分析任务的是哪几条"——ai_tasks.subject 以
-	// "submission #<id>" 形式存；一次 IN 查询取所有 running 行即可。
+	// 批量查"这一页提交里正在跑 AI 分析任务的是哪几条"——ai_tasks.subject
+	// 通过 i18n helper 统一生成；一次 IN 查询取所有 running 行即可。
 	aiPending := map[uint]bool{}
 	if len(rows) > 0 {
 		subjects := make([]string, 0, len(rows))
 		for _, r := range rows {
-			subjects = append(subjects, fmt.Sprintf("submission #%d", r.ID))
+			subjects = append(subjects, i18n.AITaskSubjectSubmission(r.ID))
 		}
 		type tr struct{ Subject string }
 		var trs []tr
@@ -238,8 +237,7 @@ func (h *SubmissionHandler) List(c *gin.Context) {
 				models.AITaskStatusRunning, models.AITaskKindAnalyze, subjects).
 			Scan(&trs)
 		for _, r := range trs {
-			var id uint
-			if _, err := fmt.Sscanf(r.Subject, "submission #%d", &id); err == nil {
+			if id, ok := i18n.ParseAITaskSubjectSubmission(r.Subject); ok {
 				aiPending[id] = true
 			}
 		}
@@ -248,12 +246,13 @@ func (h *SubmissionHandler) List(c *gin.Context) {
 	items := make([]summary, len(rows))
 	for i, r := range rows {
 		u := users[r.UserID]
+		explanation := sanitizeAdminAIExplanation(r.AIExplanation, isAdmin)
 		items[i] = summary{
 			ID: r.ID, UserID: r.UserID, Username: u.Username, Name: u.Name,
 			ProblemID: r.ProblemID, Language: r.Language, Verdict: r.Verdict,
 			TimeUsedMS: r.TimeUsedMS, MemoryKB: r.MemoryUsedKB,
 			CreatedAt:        r.CreatedAt.Format("2006-01-02 15:04:05"),
-			HasAIExplanation: r.AIExplanation != "",
+			HasAIExplanation: explanation != "",
 			AIPending:        aiPending[r.ID],
 			AIRejected:       r.AIRejected,
 			AIRejectReason:   r.AIRejectReason,
@@ -275,10 +274,12 @@ func (h *SubmissionHandler) Detail(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": i18n.ErrNotFound})
 		return
 	}
-	if middleware.CurrentRole(c) != models.RoleAdmin && s.UserID != middleware.CurrentUserID(c) {
+	isAdmin := middleware.CurrentRole(c) == models.RoleAdmin
+	if !isAdmin && s.UserID != middleware.CurrentUserID(c) {
 		c.JSON(http.StatusForbidden, gin.H{"error": i18n.ErrForbidden})
 		return
 	}
+	s.AIExplanation = sanitizeAdminAIExplanation(s.AIExplanation, isAdmin)
 	// has_prev 告诉前端该用户在本题上是否已有更早的同语言提交——用于隐藏
 	// "与上次对比"按钮。对比不同语言没有意义，因此要求 language 相同。
 	var prevCount int64

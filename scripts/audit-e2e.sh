@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/audit-e2e.sh —— Phase D 端到端冒烟：真启 liteoj + 打 go-judge。
 # 覆盖规模：登录 / 建题单 / 踢人 / stu7 penalty=60 / stu8 rejected 不罚 / stu10
-# 保留提交 / 判题超时降级 / SSE 流。任一步失败 exit 1。
+# 保留提交 / 判题超时降级 / SSE 流（30s keepalive 窗口）。任一步失败 exit 1。
 #
 # 前置：C:\WSL\start-go-judge.bat 已经跑过。脚本**不**启停 go-judge，这是用户
 # 的环境职责。
@@ -24,6 +24,9 @@ JUDGE_URL="${JUDGE_URL:-http://127.0.0.1:5050}"
 ADMIN_USER="${LITEOJ_ADMIN_USER:-admin}"
 ADMIN_PASS="${LITEOJ_ADMIN_PASS:-admin123}"
 PID_FILE="/tmp/liteoj-e2e.pid"
+AH=()
+RESTORE_PROBLEM_ID=""
+RESTORE_PROBLEM_PAYLOAD=""
 
 step() { echo; echo "─── $* ───"; }
 die()  { echo "[e2e] FAIL: $*"; exit 1; }
@@ -45,6 +48,11 @@ curl -fsS "$BASE/api/health" >/dev/null || die "backend not healthy on $BASE"
 echo "  pid=$(cat "$PID_FILE")"
 
 cleanup() {
+  if [[ -n "${RESTORE_PROBLEM_ID:-}" && -n "${RESTORE_PROBLEM_PAYLOAD:-}" && ${#AH[@]} -gt 0 ]]; then
+    curl -fsS "${AH[@]}" -H 'Content-Type: application/json' \
+      -X PUT "$BASE/api/admin/problems/$RESTORE_PROBLEM_ID" \
+      -d "$RESTORE_PROBLEM_PAYLOAD" >/dev/null || true
+  fi
   if [[ -f "$PID_FILE" ]]; then
     kill "$(cat "$PID_FILE")" 2>/dev/null || true
     rm -f "$PID_FILE"
@@ -104,19 +112,73 @@ echo "  stu10 submissions in /api/submissions = $stu10_subs (expect >0)"
 
 step "9) admin edit problem → clears ai_explanation"
 prob_id="$(curl -fsS "${AH[@]}" "$BASE/api/problems?page=1&page_size=1" | jq '.items[0].id')"
+prob_json="$(curl -fsS "${AH[@]}" "$BASE/api/problems/$prob_id")"
+orig_title="$(echo "$prob_json" | jq -r '.problem.title')"
+orig_desc="$(echo "$prob_json" | jq -r '.problem.description // ""')"
+orig_diff="$(echo "$prob_json" | jq -r '.problem.difficulty // ""')"
+orig_solution="$(echo "$prob_json" | jq -r '.problem.solution_md // ""')"
+orig_idea="$(echo "$prob_json" | jq -r '.problem.solution_idea_md // ""')"
+orig_tl="$(echo "$prob_json" | jq '.problem.time_limit_ms')"
+orig_ml="$(echo "$prob_json" | jq '.problem.memory_limit_mb')"
+orig_visible="$(echo "$prob_json" | jq '.problem.visible')"
+orig_tag_ids="$(echo "$prob_json" | jq -c '.tag_ids // []')"
+make_problem_payload() {
+  local title="$1"
+  jq -nc \
+    --arg title "$title" \
+    --arg description "$orig_desc" \
+    --arg difficulty "$orig_diff" \
+    --arg solution_md "$orig_solution" \
+    --arg solution_idea_md "$orig_idea" \
+    --argjson time_limit_ms "$orig_tl" \
+    --argjson memory_limit_mb "$orig_ml" \
+    --argjson visible "$orig_visible" \
+    --argjson tag_ids "$orig_tag_ids" \
+    '{
+      title: $title,
+      description: $description,
+      difficulty: $difficulty,
+      solution_md: $solution_md,
+      solution_idea_md: $solution_idea_md,
+      time_limit_ms: $time_limit_ms,
+      memory_limit_mb: $memory_limit_mb,
+      visible: $visible,
+      tag_ids: $tag_ids
+    }'
+}
+RESTORE_PROBLEM_ID="$prob_id"
+RESTORE_PROBLEM_PAYLOAD="$(make_problem_payload "$orig_title")"
+edit_payload="$(make_problem_payload "${orig_title} [e2e]")"
 curl -fsS "${AH[@]}" -H 'Content-Type: application/json' \
   -X PUT "$BASE/api/admin/problems/$prob_id" \
-  -d "{\"title\":\"(edited)\",\"description\":\"edited\",\"time_limit_ms\":1000,\"memory_limit_mb\":256,\"visible\":true}" >/dev/null
+  -d "$edit_payload" >/dev/null
 # 验证 ai_explanation 清空：查后端返回（不直接查 DB）
 ai_count="$(curl -fsS "${AH[@]}" \
   "$BASE/api/submissions?problem_id=$prob_id&page=1&page_size=100" \
   | jq '[.items[] | select(.ai_explanation != "" and .ai_explanation != null)] | length')"
 echo "  ai_explanation != '' rows for problem $prob_id = $ai_count (expect 0)"
 [[ "$ai_count" == "0" ]] || die "problem edit should clear ai_explanation"
+curl -fsS "${AH[@]}" -H 'Content-Type: application/json' \
+  -X PUT "$BASE/api/admin/problems/$prob_id" \
+  -d "$RESTORE_PROBLEM_PAYLOAD" >/dev/null
+RESTORE_PROBLEM_ID=""
+RESTORE_PROBLEM_PAYLOAD=""
 
-step "10) SSE stream: 5s window should see ping or event"
-( timeout 5 curl -fsS -N "$BASE/api/events/stream" | head -c 200 ) || true
-echo "  sse window closed ok"
+step "10) SSE stream: 30s window should see ping or event"
+sse_file="$(mktemp)"
+set +e
+curl -fsS -N --max-time 30 "$BASE/api/events/stream" >"$sse_file" 2>/dev/null
+curl_status=$?
+set -e
+if [[ $curl_status -ne 0 && $curl_status -ne 28 ]]; then
+  sed -n '1,20p' "$sse_file" || true
+  rm -f "$sse_file"
+  die "sse stream request failed (curl=$curl_status)"
+fi
+sse_line="$(grep -m1 -E '^:ping$|^event:' "$sse_file" || true)"
+rm -f "$sse_file"
+[[ -n "$sse_line" ]] || die "no SSE keepalive/event within 30s"
+echo "  first frame: $sse_line"
 
 step "DONE"
 echo "[e2e] passed — log at $LOG"

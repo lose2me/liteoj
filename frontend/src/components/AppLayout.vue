@@ -3,12 +3,11 @@ import { NLayout, NLayoutHeader, NMenu, NButton, NDrawer, NDrawerContent } from 
 import { computed, ref } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { useThemeStore } from '../stores/theme'
 import LoginCard from './LoginCard.vue'
+import ThemeToggleButton from './ThemeToggleButton.vue'
 import { t } from '../i18n'
 
 const user = useUserStore()
-const theme = useThemeStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -34,6 +33,7 @@ const onLoginSuccess = () => {
 // the same event and left the router stuck after landing on /me — the only
 // recovery was a hard refresh. Single handler → single source of truth.
 const menuOptions = computed(() => [
+  { label: t.nav.home, key: '/' },
   { label: t.nav.problems, key: '/problems' },
   { label: t.nav.problemsets, key: '/problemsets' },
   { label: t.nav.submissions, key: '/submissions' },
@@ -43,12 +43,13 @@ const menuOptions = computed(() => [
 
 const activeKey = computed(() => {
   const p = route.path
+  if (p === '/') return '/'
   if (p.startsWith('/problemsets')) return '/problemsets'
   if (p.startsWith('/problems')) return '/problems'
   if (p.startsWith('/submissions')) return '/submissions'
   if (p.startsWith('/ranking')) return '/ranking'
   if (p.startsWith('/me')) return '/me'
-  // 首页 / 未匹配任何导航项时返回空串，避免误高亮「题目」。
+  // 未匹配任何导航项时返回空串，避免误高亮。
   return ''
 })
 
@@ -75,9 +76,7 @@ const logout = () => {
           @update:value="onMenuSelect"
         />
         <div class="header-actions">
-          <NButton size="small" quaternary @click="theme.toggle">
-            {{ theme.isDark ? t.nav.themeLight : t.nav.themeDark }}
-          </NButton>
+          <ThemeToggleButton />
           <template v-if="user.isLoggedIn">
             <span class="user-nick text-sm opacity-80">
               {{ user.user?.name || user.user?.username }}

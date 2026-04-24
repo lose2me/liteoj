@@ -132,7 +132,7 @@ func (h *AdminHandler) UserProfile(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	var u models.User
 	if err := h.DB.First(&u, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": i18n.ErrUserNotFound})
 		return
 	}
 	uid := u.ID
@@ -250,8 +250,12 @@ func (h *AdminHandler) CreateProblem(c *gin.Context) {
 	if p.MemoryLimitMB == 0 {
 		p.MemoryLimitMB = h.C.JudgeDefaultMem
 	}
-	p.TagsJSON = serializeTagsJSON(r.TagIDs)
-	if err := h.DB.Create(&p).Error; err != nil {
+	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&p).Error; err != nil {
+			return err
+		}
+		return replaceProblemTags(tx, p.ID, r.TagIDs)
+	}); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -271,8 +275,12 @@ func (h *AdminHandler) UpdateProblem(c *gin.Context) {
 	}
 	p := r.Problem
 	p.ID = uint(id)
-	p.TagsJSON = serializeTagsJSON(r.TagIDs)
-	if err := h.DB.Model(&models.Problem{}).Where("id = ?", id).Updates(&p).Error; err != nil {
+	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.Problem{}).Where("id = ?", id).Updates(&p).Error; err != nil {
+			return err
+		}
+		return replaceProblemTags(tx, uint(id), r.TagIDs)
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -299,6 +307,7 @@ func (h *AdminHandler) DeleteProblem(c *gin.Context) {
 		return
 	}
 	h.DB.Where("problem_id = ?", id).Delete(&models.Testcase{})
+	h.DB.Where("problem_id = ?", id).Delete(&models.ProblemTag{})
 	// 级联清理所有题单里对该题的引用：原题删后题单内自然不再展示。
 	h.DB.Where("problem_id = ?", id).Delete(&models.ProblemSetItem{})
 	if h.Cache != nil {
@@ -580,7 +589,7 @@ func (h *AdminHandler) CopyProblemSet(c *gin.Context) {
 		return
 	}
 	dup := models.ProblemSet{
-		Title:            src.Title + "（副本）",
+		Title:            i18n.ProblemSetCopyTitle(src.Title),
 		AllowedLangsJSON: src.AllowedLangsJSON,
 		Password:         src.Password,
 		StartTime:        src.StartTime,

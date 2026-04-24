@@ -17,7 +17,7 @@ onMounted(async () => {
 })
 
 // 扁平化成 "分组 / 标签"，filterable 时可按分组名或标签名快速定位——237 项也
-// 能即打即筛。value 仍是 tag.id，跟 Problem.tags_json 的 uint 数组对齐。
+// 能即打即筛。value 仍是 tag.id，直接对应后端返回的 tag_ids。
 const options = computed<SelectOption[]>(() => {
   const out: SelectOption[] = []
   for (const g of groups.value) {

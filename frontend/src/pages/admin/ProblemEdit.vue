@@ -197,6 +197,10 @@ const runAIGenAll = () => runAI(
     if (d.description) p.value.description = d.description
     if (d.solution_idea_md !== undefined) p.value.solution_idea_md = d.solution_idea_md
     if (d.solution_md !== undefined) p.value.solution_md = d.solution_md
+    if (d.difficulty) p.value.difficulty = d.difficulty
+    if (Array.isArray(d.tag_ids) && d.tag_ids.length) {
+      tagIDs.value = Array.from(new Set([...tagIDs.value, ...d.tag_ids]))
+    }
   },
 )
 
@@ -254,14 +258,9 @@ const tcColumns = [
         :placeholder="t.problemAdmin.rawSourcePlaceholder"
       />
       <NSpace class="mt-3" size="small">
-        <NPopconfirm @positive-click="runAIGenAll">
-          <template #trigger>
-            <NButton type="primary" :disabled="aiAnyRunning" :loading="aiBusy.all">
-              {{ t.problemAdmin.aiGenAll }}
-            </NButton>
-          </template>
-          {{ t.problemAdmin.aiGenAllConfirm }}
-        </NPopconfirm>
+        <NButton type="primary" :disabled="aiAnyRunning" :loading="aiBusy.all" @click="runAIGenAll">
+          {{ t.problemAdmin.aiGenAll }}
+        </NButton>
         <NButton :disabled="aiAnyRunning" :loading="aiBusy.title" @click="runAIGenTitle">
           {{ t.problemAdmin.aiGenTitle }}
         </NButton>

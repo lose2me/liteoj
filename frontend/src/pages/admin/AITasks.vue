@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NCard, NTag, NDataTable, NSelect, NInput, NSpace, NButton, NModal, NScrollbar, useMessage } from 'naive-ui'
+import { NTag, NDataTable, NSelect, NInput, NSpace, NButton, NModal, NScrollbar, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { h, onMounted, onUnmounted, ref } from 'vue'
 import { http } from '../../api/http'
@@ -127,9 +127,10 @@ const kindLabel = (k: string) => {
   return k
 }
 
-const statusTagType = (s: string): 'default' | 'info' | 'success' | 'error' => {
+const statusTagType = (s: string): 'default' | 'info' | 'success' | 'warning' | 'error' => {
   if (s === 'running') return 'info'
   if (s === 'done') return 'success'
+  if (s === 'aborted') return 'warning'
   if (s === 'failed') return 'error'
   return 'default'
 }
@@ -137,6 +138,7 @@ const statusTagType = (s: string): 'default' | 'info' | 'success' | 'error' => {
 const statusLabel = (s: string) => {
   if (s === 'running') return t.adminDashboard.aiStatusRunning
   if (s === 'done') return t.adminDashboard.aiStatusDone
+  if (s === 'aborted') return t.adminDashboard.aiStatusAborted
   if (s === 'failed') return t.adminDashboard.aiStatusFailed
   return s
 }
@@ -163,11 +165,12 @@ const statusOptions: SelectOption[] = [
   { label: t.common.all, value: '' },
   { label: t.adminDashboard.aiStatusRunning, value: 'running' },
   { label: t.adminDashboard.aiStatusDone, value: 'done' },
+  { label: t.adminDashboard.aiStatusAborted, value: 'aborted' },
   { label: t.adminDashboard.aiStatusFailed, value: 'failed' },
 ]
 
 const columns = [
-  { title: 'ID', key: 'id', width: 70 },
+  { title: t.common.id, key: 'id', width: 70 },
   {
     title: t.adminDashboard.aiColKind, key: 'kind', width: 110,
     render: (r: Row) => h(NTag, { size: 'small', type: 'info' }, { default: () => kindLabel(r.kind) }),
@@ -192,7 +195,7 @@ const columns = [
     ellipsis: { tooltip: true },
   },
   {
-    title: t.adminDashboard.aiColOp, key: 'op', width: 180,
+    title: t.adminDashboard.aiColOp, key: 'op', width: 170,
     render: (r: Row) =>
       h(NSpace, { size: 4 }, {
         default: () => [
@@ -217,7 +220,7 @@ const emptyHint = () =>
 </script>
 
 <template>
-  <NCard :title="t.adminDashboard.aiTasksTitle(total)">
+  <div>
     <NSpace class="mb-3">
       <NSelect v-model:value="kindFilter" :options="kindOptions" class="w-32" :placeholder="t.adminDashboard.aiFilterKind" />
       <NSelect v-model:value="statusFilter" :options="statusOptions" class="w-32" :placeholder="t.adminDashboard.aiFilterStatus" />
@@ -247,20 +250,20 @@ const emptyHint = () =>
            NScrollbar 的高度必须走 :style（class 里的 max-height 不会转发到
            内部 scroll 容器）；内容短时留白，超长时内部滚动不会顶破屏幕。 -->
       <div class="detail-body">
-        <div v-if="detailLoading" class="opacity-70 text-sm">…</div>
+        <div v-if="detailLoading" class="opacity-70 text-sm">{{ t.common.loadingDots }}</div>
         <NScrollbar v-else-if="detailText" :style="{ height: '100%' }" x-scrollable>
           <pre class="prompt-block">{{ detailText }}</pre>
         </NScrollbar>
-        <div v-else class="opacity-60 text-sm">{{ emptyHint() }}</div>
+      <div v-else class="opacity-60 text-sm">{{ emptyHint() }}</div>
       </div>
     </NModal>
-  </NCard>
+  </div>
 </template>
 
 <style scoped>
 .detail-body {
   height: 65vh;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--lo-subtle-bg);
   border-radius: 6px;
 }
 .prompt-block {

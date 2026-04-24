@@ -193,17 +193,17 @@ const confirmRemoveTag = (tag: Tag) => {
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--lo-subtle-border);
   border-radius: 6px;
   cursor: pointer;
   transition: background-color 0.15s;
 }
 .tag-row:hover {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: var(--lo-subtle-bg);
 }
 .tag-row-active {
-  background-color: rgba(24, 160, 88, 0.12);
-  border-color: rgba(24, 160, 88, 0.5);
+  background-color: var(--lo-active-bg);
+  border-color: var(--lo-active-border);
 }
 .tag-row-add {
   justify-content: center;

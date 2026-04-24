@@ -7,7 +7,7 @@ import type { SelectOption } from 'naive-ui'
 import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { http } from '../api/http'
 import { useUserStore } from '../stores/user'
-import { verdictLabel } from '../api/verdict'
+import { verdictKeys } from '../api/verdict'
 import { onEvent } from '../api/events'
 import VerdictPie from '../components/VerdictPie.vue'
 import SubmissionTable from '../components/SubmissionTable.vue'
@@ -69,7 +69,7 @@ const submit = async () => {
 
 const verdictOptions: SelectOption[] = [
   { label: t.common.all, value: '' },
-  ...Object.keys(verdictLabel).map((k) => ({ label: k, value: k })),
+  ...verdictKeys.map((k) => ({ label: k, value: k })),
 ]
 </script>
 
@@ -105,8 +105,9 @@ const verdictOptions: SelectOption[] = [
 
       <h3 class="mt-6">{{ t.me.verdictDistribution }}</h3>
       <VerdictPie :distribution="stats.distribution || {}" />
+    </NCard>
 
-      <h3 class="mt-6">{{ t.me.contributionTitle }}</h3>
+    <NCard :title="t.me.contributionTitle" class="col-span-3">
       <ContributionHeatmap />
     </NCard>
 

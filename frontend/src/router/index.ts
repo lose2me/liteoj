@@ -7,7 +7,7 @@ const routes = [
     component: () => import('../components/AppLayout.vue'),
     children: [
       { path: '', component: () => import('../pages/Home.vue'), meta: { public: true } },
-      { path: 'problems', component: () => import('../pages/ProblemList.vue'), meta: { public: true } },
+      { path: 'problems', component: () => import('../pages/ProblemList.vue') },
       { path: 'problems/:id', component: () => import('../pages/ProblemDetail.vue'), meta: { wide: true } },
       { path: 'submissions', component: () => import('../pages/MySubmissions.vue') },
       { path: 'submissions/:id', component: () => import('../pages/SubmissionDetail.vue') },
@@ -45,10 +45,9 @@ router.beforeEach((to) => {
   const user = useUserStore()
   if (!user.token) user.hydrate()
 
-  // Public routes: /problems (list only) — anyone can land here without a
-  // token. Everything else requires auth; gating non-logged-in visitors
-  // redirects to the home page with ?next=<original>, where Home.vue renders
-  // an inline login card. 登录成功后 LoginCard 会用 next 跳回。
+  // Only the home page is public. Gating non-logged-in visitors redirects to
+  // the home page with ?next=<original>, where Home.vue renders an inline
+  // login card. 登录成功后 LoginCard 会用 next 跳回。
   const isPublic = to.meta.public === true
   if (isPublic) return true
 

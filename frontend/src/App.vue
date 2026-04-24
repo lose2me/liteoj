@@ -2,10 +2,12 @@
 import { NConfigProvider, NMessageProvider, NDialogProvider, darkTheme, zhCN, dateZhCN } from 'naive-ui'
 import { computed, onMounted, watch } from 'vue'
 import { useUserStore } from './stores/user'
+import { useCodeEditorZoomStore } from './stores/editorZoom'
 import { useThemeStore } from './stores/theme'
 
 const user = useUserStore()
 const theme = useThemeStore()
+const codeEditorZoom = useCodeEditorZoomStore()
 
 // 主题绑定：暗色走 Naive UI 的 darkTheme，亮色传 null 让 Naive 回落到默认
 // 亮色主题。document.documentElement 上同步切换 `dark` class，供自定义
@@ -20,6 +22,7 @@ const applyHtmlClass = () => {
 onMounted(() => {
   user.hydrate()
   theme.hydrate()
+  codeEditorZoom.hydrate()
   applyHtmlClass()
 })
 

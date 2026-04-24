@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,7 +38,13 @@ func (h *ProblemHandler) List(c *gin.Context) {
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	q := h.DB.Model(&models.Problem{})
+	acStats := h.DB.Table("submissions").
+		Select("problem_id, COUNT(DISTINCT user_id) AS ac_users").
+		Where("verdict = ?", models.VerdictAC).
+		Group("problem_id")
+	baseQ := h.DB.Table("problems").
+		Joins("LEFT JOIN (?) AS ac_stats ON ac_stats.problem_id = problems.id", acStats)
+	q := baseQ.Session(&gorm.Session{})
 	if middleware.CurrentRole(c) != models.RoleAdmin {
 		q = q.Where("visible = ?", true)
 	}
@@ -51,28 +55,68 @@ func (h *ProblemHandler) List(c *gin.Context) {
 		q = q.Where("difficulty = ?", diff)
 	}
 	if tag := strings.TrimSpace(c.Query("tag_id")); tag != "" {
-		// TagsJSON stores an array of uints; LIKE is enough for a lightweight match.
-		q = q.Where("tags_json LIKE ?", "%"+tag+"%")
+		if tagID, err := strconv.Atoi(tag); err == nil && tagID > 0 {
+			q = q.Where(
+				"problems.id IN (?)",
+				h.DB.Model(&models.ProblemTag{}).Select("problem_id").Where("tag_id = ?", tagID),
+			)
+		}
 	}
 
 	var total int64
-	q.Count(&total)
-	var items []models.Problem
-	if err := q.Order("id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
+	if err := q.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	type listedProblem struct {
+		models.Problem
+		ACUsers int `gorm:"column:ac_users"`
+	}
+	itemsQ := q.Session(&gorm.Session{}).
+		Select("problems.*, COALESCE(ac_stats.ac_users, 0) AS ac_users")
+	switch strings.TrimSpace(c.Query("sort_by")) {
+	case "ac_users":
+		if strings.EqualFold(strings.TrimSpace(c.Query("sort_order")), "asc") {
+			itemsQ = itemsQ.Order("COALESCE(ac_stats.ac_users, 0) ASC").Order("problems.id DESC")
+		} else {
+			itemsQ = itemsQ.Order("COALESCE(ac_stats.ac_users, 0) DESC").Order("problems.id DESC")
+		}
+	case "difficulty":
+		diffRank := `CASE problems.difficulty
+			WHEN '入门' THEN 1
+			WHEN '简单' THEN 2
+			WHEN '中等' THEN 3
+			WHEN '困难' THEN 4
+			ELSE 99
+		END`
+		if strings.EqualFold(strings.TrimSpace(c.Query("sort_order")), "desc") {
+			itemsQ = itemsQ.Order(diffRank + " DESC").Order("problems.id DESC")
+		} else {
+			itemsQ = itemsQ.Order(diffRank + " ASC").Order("problems.id DESC")
+		}
+	default:
+		itemsQ = itemsQ.Order("problems.id DESC")
+	}
+	var items []listedProblem
+	if err := itemsQ.Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	statuses := h.computeStatuses(middleware.CurrentUserID(c), collectIDs(items))
-	tagNameMap := h.resolveTagNames(items)
+	pids := make([]uint, 0, len(items))
+	for _, item := range items {
+		pids = append(pids, item.ID)
+	}
+	statuses := h.computeStatuses(middleware.CurrentUserID(c), pids)
+	tagNameMap := h.resolveTagNames(pids)
 
-	// 批量查 "problem #<id>" 主题下正在运行的 AI 任务——admin 列表用来给行
+	// 批量查当前页题目对应的 AI subject 下正在运行的任务——admin 列表用来给行
 	// 打 spinner + 禁止进入编辑页，防止一键解析还没落盘就点开看到旧字段。
 	aiPending := map[uint]bool{}
 	if len(items) > 0 {
 		subjects := make([]string, 0, len(items))
 		for _, p := range items {
-			subjects = append(subjects, fmt.Sprintf("problem #%d", p.ID))
+			subjects = append(subjects, i18n.AITaskSubjectProblem(p.ID))
 		}
 		type tr struct{ Subject string }
 		var trs []tr
@@ -81,8 +125,7 @@ func (h *ProblemHandler) List(c *gin.Context) {
 			Where("status = ? AND subject IN ?", models.AITaskStatusRunning, subjects).
 			Scan(&trs)
 		for _, row := range trs {
-			var id uint
-			if _, err := fmt.Sscanf(row.Subject, "problem #%d", &id); err == nil {
+			if id, ok := i18n.ParseAITaskSubjectProblem(row.Subject); ok {
 				aiPending[id] = true
 			}
 		}
@@ -96,7 +139,6 @@ func (h *ProblemHandler) List(c *gin.Context) {
 	type restriction struct{ idea, solution, ai bool }
 	restrictions := map[uint]restriction{}
 	if len(items) > 0 {
-		pids := collectIDs(items)
 		type row struct {
 			ProblemID uint
 			RIdea     bool
@@ -136,6 +178,7 @@ func (h *ProblemHandler) List(c *gin.Context) {
 	type problemRow struct {
 		models.Problem
 		MyStatus           string   `json:"my_status"`
+		ACUsers            int      `json:"ac_users"`
 		TagNames           []string `json:"tag_names"`
 		AIPending          bool     `json:"ai_pending"`
 		RestrictedIdea     bool     `json:"restricted_idea"`
@@ -146,7 +189,7 @@ func (h *ProblemHandler) List(c *gin.Context) {
 	for i, p := range items {
 		rst := restrictions[p.ID]
 		out[i] = problemRow{
-			Problem: p, MyStatus: statuses[p.ID], TagNames: tagNameMap[p.ID],
+			Problem: p.Problem, MyStatus: statuses[p.ID], ACUsers: p.ACUsers, TagNames: tagNameMap[p.ID],
 			AIPending:          aiPending[p.ID],
 			RestrictedIdea:     rst.idea,
 			RestrictedSolution: rst.solution,
@@ -170,11 +213,12 @@ func (h *ProblemHandler) Detail(c *gin.Context) {
 	var tcs []models.Testcase
 	h.DB.Where("problem_id = ?", p.ID).Order("order_index ASC, id ASC").Find(&tcs)
 
-	tagIDs := parseTagsJSON(p.TagsJSON)
-	var tags []models.Tag
-	if len(tagIDs) > 0 {
-		h.DB.Where("id IN ?", tagIDs).Find(&tags)
+	tags, err := loadProblemTags(h.DB, p.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
+	tagIDs := collectTagIDs(tags)
 
 	// If opened in the context of a problem set, narrow the language choices
 	// to the intersection of the set's allow-list and the globally configured
@@ -226,6 +270,7 @@ func (h *ProblemHandler) Detail(c *gin.Context) {
 	// 还是"上一次优化"；AC 的 ai_explanation 是 OptimizeAC 产生的，否则是
 	// AnalyzeWrongAnswer 产生的。
 	var myLatestAI any
+	isAdmin := middleware.CurrentRole(c) == models.RoleAdmin
 	if uid := middleware.CurrentUserID(c); uid > 0 && !disableAI {
 		type row struct {
 			ID            uint   `json:"submission_id"`
@@ -244,6 +289,9 @@ func (h *ProblemHandler) Detail(c *gin.Context) {
 			q = q.Where("problem_set_id IS NULL")
 		}
 		if err := q.Order("id DESC").Limit(1).Scan(&r).Error; err == nil && r.ID > 0 {
+			r.AIExplanation = sanitizeAdminAIExplanation(r.AIExplanation, isAdmin)
+		}
+		if r.ID > 0 && r.AIExplanation != "" {
 			if r.Verdict == models.VerdictAC {
 				r.Type = "optimize"
 			} else {
@@ -307,67 +355,25 @@ func (h *ProblemHandler) computeStatuses(uid uint, ids []uint) map[uint]string {
 	return out
 }
 
-func (h *ProblemHandler) resolveTagNames(items []models.Problem) map[uint][]string {
+func (h *ProblemHandler) resolveTagNames(ids []uint) map[uint][]string {
 	out := map[uint][]string{}
-	idSet := map[uint]bool{}
-	perProblem := map[uint][]uint{}
-	for _, p := range items {
-		ids := parseTagsJSON(p.TagsJSON)
-		perProblem[p.ID] = ids
-		for _, id := range ids {
-			idSet[id] = true
-		}
-	}
-	if len(idSet) == 0 {
+	if len(ids) == 0 {
 		return out
 	}
-	ids := make([]uint, 0, len(idSet))
-	for id := range idSet {
-		ids = append(ids, id)
+	type row struct {
+		ProblemID uint
+		Name      string
 	}
-	var tags []models.Tag
-	h.DB.Where("id IN ?", ids).Find(&tags)
-	nameByID := map[uint]string{}
-	for _, t := range tags {
-		nameByID[t.ID] = t.Name
-	}
-	for pid, tagIDs := range perProblem {
-		names := make([]string, 0, len(tagIDs))
-		for _, tid := range tagIDs {
-			if n, ok := nameByID[tid]; ok {
-				names = append(names, n)
-			}
-		}
-		if len(names) > 0 {
-			out[pid] = names
-		}
+	var rows []row
+	h.DB.Table("problem_tags pt").
+		Select("pt.problem_id, t.name").
+		Joins("JOIN tags t ON t.id = pt.tag_id").
+		Joins("LEFT JOIN tag_groups tg ON tg.id = t.group_id").
+		Where("pt.problem_id IN ?", ids).
+		Order("pt.problem_id ASC, COALESCE(tg.order_index, 0) ASC, t.order_index ASC, t.id ASC").
+		Scan(&rows)
+	for _, row := range rows {
+		out[row.ProblemID] = append(out[row.ProblemID], row.Name)
 	}
 	return out
-}
-
-func collectIDs(items []models.Problem) []uint {
-	out := make([]uint, 0, len(items))
-	for _, p := range items {
-		out = append(out, p.ID)
-	}
-	return out
-}
-
-func parseTagsJSON(s string) []uint {
-	if s == "" {
-		return nil
-	}
-	var ids []uint
-	if err := json.Unmarshal([]byte(s), &ids); err != nil {
-		return nil
-	}
-	return ids
-}
-
-func serializeTagsJSON(ids []uint) string {
-	if len(ids) == 0 {
-		return ""
-	}
-	b, _ := json.Marshal(ids)
-	return string(b)
 }

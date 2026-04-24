@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { NLayout, NLayoutHeader, NLayoutSider, NLayoutContent, NMenu, NSpace, NButton } from 'naive-ui'
+import { NLayout, NLayoutHeader, NLayoutSider, NLayoutContent, NMenu, NButton } from 'naive-ui'
 import type { MenuOption } from 'naive-ui'
 import { computed } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
+import ThemeToggleButton from './ThemeToggleButton.vue'
 import { t } from '../i18n'
 
 const user = useUserStore()
@@ -53,6 +54,7 @@ const logout = () => {
         <div class="text-sm opacity-70">{{ t.nav.adminConsole }}</div>
         <div class="flex-1" />
         <div class="header-actions">
+          <ThemeToggleButton />
           <span class="user-nick text-sm opacity-80">
             {{ user.user?.name || user.user?.username }}
           </span>

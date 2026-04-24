@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Start backend + frontend + (reminder) go-judge for local development.
-# go-judge is expected to already be running at $JUDGE_BASE_URL — start it yourself.
+# Start backend + frontend for local development.
+# go-judge is expected to already be running; start it yourself first.
 set -e
 cd "$(dirname "$0")/.."
 
-if [ ! -f .env ]; then
-  cp .env.example .env
-  echo "[dev] copied .env.example to .env — please review values (JWT_SECRET, ADMIN_INIT_PASSWORD, ...)"
+if [ ! -f config.toml ]; then
+  cp config.example.toml config.toml
+  echo "[dev] copied config.example.toml to config.toml — please review judge/jwt/ai values"
 fi
 
-echo "[dev] reminder: start go-judge separately, e.g.  ./go-judge -http-addr :5050"
+echo "[dev] reminder: start go-judge separately first"
+echo "[dev]   Windows host: C:\\WSL\\start-go-judge.bat"
+echo "[dev]   Liveness check: curl http://127.0.0.1:5050/version"
 echo
 
 # backend in background

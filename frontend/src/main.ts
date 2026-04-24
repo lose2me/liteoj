@@ -6,6 +6,7 @@ import 'katex/dist/katex.min.css'
 import router from './router'
 import App from './App.vue'
 import 'virtual:uno.css'
+import './styles/theme-tokens.css'
 import './styles/markdown-overrides.css'
 import './styles/data-table-overrides.css'
 

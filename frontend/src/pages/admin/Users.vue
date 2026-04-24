@@ -180,8 +180,8 @@ const rowProps = (row: Row) => ({
   },
 })
 
-// 客户端分页，固定 20/页（后台用户管理按 spec 基线 20）。数据一次拉完后本地翻页即可。
-const pagination = { pageSize: 20 }
+// 客户端分页，固定 16/页。数据一次拉完后本地翻页即可。
+const pagination = { pageSize: 16 }
 </script>
 
 <template>
@@ -220,15 +220,15 @@ const pagination = { pageSize: 20 }
       <div class="bulk-grid">
         <div>
           <div class="bulk-col-title">{{ t.usersAdmin.bulkColName }}</div>
-          <NInput v-model:value="bulkName" type="textarea" :rows="10" />
+          <NInput v-model:value="bulkName" type="textarea" :rows="16" class="bulk-textarea" />
         </div>
         <div>
           <div class="bulk-col-title">{{ t.usersAdmin.bulkColUser }}</div>
-          <NInput v-model:value="bulkUser" type="textarea" :rows="10" />
+          <NInput v-model:value="bulkUser" type="textarea" :rows="16" class="bulk-textarea" />
         </div>
         <div>
           <div class="bulk-col-title">{{ t.usersAdmin.bulkColPwd }}</div>
-          <NInput v-model:value="bulkPwd" type="textarea" :rows="10" />
+          <NInput v-model:value="bulkPwd" type="textarea" :rows="16" class="bulk-textarea" />
         </div>
       </div>
       <div class="mt-2 text-xs opacity-70">{{ bulkHint }}</div>
@@ -259,5 +259,14 @@ const pagination = { pageSize: 20 }
   font-size: 12px;
   opacity: 0.7;
   margin-bottom: 4px;
+}
+.bulk-textarea :deep(.n-input__textarea-el) {
+  resize: none !important;
+  min-height: 360px !important;
+}
+
+.bulk-textarea :deep(textarea) {
+  resize: none !important;
+  min-height: 360px !important;
 }
 </style>

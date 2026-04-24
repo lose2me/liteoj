@@ -11,6 +11,7 @@ import (
 
 	"github.com/liteoj/liteoj/backend/internal/auth"
 	"github.com/liteoj/liteoj/backend/internal/config"
+	"github.com/liteoj/liteoj/backend/internal/i18n"
 	"github.com/liteoj/liteoj/backend/internal/models"
 )
 
@@ -35,20 +36,23 @@ func Auth(c *config.Config, db *gorm.DB) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		raw := ctx.GetHeader("Authorization")
 		if raw == "" {
-			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": i18n.ErrMissingToken})
 			return
 		}
 		parts := strings.SplitN(raw, " ", 2)
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "bad auth header"})
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": i18n.ErrBadAuthHeader})
 			return
 		}
 		claims, err := auth.Parse(c.JWTSecret, parts[1])
 		if err != nil {
-			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": i18n.ErrInvalidToken})
 			return
 		}
-		applyClaims(ctx, claims, db)
+		if !applyClaims(ctx, claims, db) {
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": i18n.ErrInvalidToken})
+			return
+		}
 		ctx.Next()
 	}
 }
@@ -78,32 +82,42 @@ func OptionalAuth(c *config.Config, db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// applyClaims 把 claims 写入 ctx 并跑 last_seen 节流更新（与 Auth 共享）。
-func applyClaims(ctx *gin.Context, claims *auth.Claims, db *gorm.DB) {
-	ctx.Set(CtxUserID, claims.UserID)
-	ctx.Set(CtxUsername, claims.Username)
-	ctx.Set(CtxRole, claims.Role)
+// applyClaims resolves the token's user id against the database and writes the
+// current authoritative user identity into gin ctx. Returning false means the
+// token refers to a user that no longer exists.
+func applyClaims(ctx *gin.Context, claims *auth.Claims, db *gorm.DB) bool {
 	if db == nil {
-		return
+		ctx.Set(CtxUserID, claims.UserID)
+		ctx.Set(CtxUsername, claims.Username)
+		ctx.Set(CtxRole, claims.Role)
+		return true
 	}
+	var u models.User
+	if err := db.Select("id", "username", "role").First(&u, claims.UserID).Error; err != nil {
+		return false
+	}
+	ctx.Set(CtxUserID, u.ID)
+	ctx.Set(CtxUsername, u.Username)
+	ctx.Set(CtxRole, u.Role)
 	now := time.Now()
 	seen.mu.Lock()
-	last := seen.m[claims.UserID]
+	last := seen.m[u.ID]
 	update := now.Sub(last) > throttleWindow
 	if update {
-		seen.m[claims.UserID] = now
+		seen.m[u.ID] = now
 	}
 	seen.mu.Unlock()
 	if update {
-		db.Model(&models.User{}).Where("id = ?", claims.UserID).Update("last_seen_at", now)
+		db.Model(&models.User{}).Where("id = ?", u.ID).Update("last_seen_at", now)
 	}
+	return true
 }
 
 func AdminOnly() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		r, _ := ctx.Get(CtxRole)
 		if r != models.RoleAdmin {
-			ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin only"})
+			ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": i18n.ErrAdminOnly})
 			return
 		}
 		ctx.Next()

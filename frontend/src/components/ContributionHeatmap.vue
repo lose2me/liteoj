@@ -89,8 +89,14 @@ function levelOf(n: number): 0 | 1 | 2 | 3 | 4 {
 </script>
 
 <template>
-  <div class="heatmap">
-    <svg :width="width + 28" :height="height + 18" class="heatmap-svg">
+  <div class="heatmap" @mousedown.prevent @selectstart.prevent @dragstart.prevent>
+    <svg
+      :viewBox="`0 0 ${width + 28} ${height + 18}`"
+      :width="width + 28"
+      :height="height + 18"
+      preserveAspectRatio="xMinYMid meet"
+      class="heatmap-svg"
+    >
       <!-- 月份标签 -->
       <g transform="translate(24, 0)">
         <text
@@ -132,35 +138,52 @@ function levelOf(n: number): 0 | 1 | 2 | 3 | 4 {
 
 <style scoped>
 .heatmap {
-  overflow-x: auto;
+  /* 用 viewBox + 100% 宽度让 SVG 自适应外层卡片，避免固定像素宽度在窄屏
+   * 或半宽卡片里触发横向滚动条（Me 页面之前就因为 overflow-x:auto 在
+   * 卡片底部挂了一条滚动条，影响观感）。高度跟着等比缩放，格子保持方形。 */
+  width: 100%;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .heatmap-svg {
   display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.heatmap :deep(*) {
+  user-select: none;
+  -webkit-user-select: none;
 }
 /* 暗 / 亮主题由 html.dark / html.light 类切换；SVG fill/stroke 不支持 CSS
  * var 继承到 :deep，所以直接在两个类下写两套值。 */
 .lbl {
   font-size: 10px;
   fill: rgba(255, 255, 255, 0.45);
+  pointer-events: none;
 }
-:global(html.light) .lbl {
-  fill: rgba(0, 0, 0, 0.55);
+:global(html.light .lbl) {
+  fill: #98a1ab;
 }
 .cell {
   stroke: rgba(255, 255, 255, 0.06);
   stroke-width: 1;
 }
-:global(html.light) .cell {
-  stroke: rgba(0, 0, 0, 0.08);
+:global(html.light .cell) {
+  stroke: #d6dde4;
 }
 .lv-0 { fill: rgba(255, 255, 255, 0.06); }
-:global(html.light) .lv-0 { fill: #ebedf0; }
+:global(html.light .lv-0) { fill: #dde3e8; }
 .lv-1 { fill: #0e4429; }
-:global(html.light) .lv-1 { fill: #9be9a8; }
+:global(html.light .lv-1) { fill: #b9e2c4; }
 .lv-2 { fill: #006d32; }
-:global(html.light) .lv-2 { fill: #40c463; }
+:global(html.light .lv-2) { fill: #90d1a2; }
 .lv-3 { fill: #26a641; }
-:global(html.light) .lv-3 { fill: #30a14e; }
+:global(html.light .lv-3) { fill: #67b981; }
 .lv-4 { fill: #39d353; }
-:global(html.light) .lv-4 { fill: #216e39; }
+:global(html.light .lv-4) { fill: #439966; }
 </style>

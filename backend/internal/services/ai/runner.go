@@ -9,14 +9,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 	"sync"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
+	"github.com/liteoj/liteoj/backend/internal/i18n"
 	"github.com/liteoj/liteoj/backend/internal/models"
 )
 
@@ -24,12 +25,15 @@ import (
 // created (via Queue.Start) in "running" state — the Runner is responsible
 // for advancing it to done/failed.
 type Job struct {
-	TaskID       uint
-	Kind         string
-	UserID       uint
-	ProblemID    uint // authoring flows (tag / gen_*)
-	SubmissionID uint // Analyze
-	Raw          string
+	TaskID              uint
+	TaskStartedAt       time.Time
+	Kind                string
+	UserID              uint
+	ProblemID           uint // authoring flows (tag / gen_*)
+	ProblemCreatedAt    time.Time
+	SubmissionID        uint // Analyze
+	SubmissionCreatedAt time.Time
+	Raw                 string
 	// ForceAnalyze 表示本次 analyze 任务由管理员触发，需跳过 prompt_wrong_answer
 	// 里的 "乱写" 判定——模型若返回 ok=false 仍照常把 explanation 写回，哪怕
 	// reason 非空。管理员手动点的解析多半是帮学生兜底或示范，不应因模型误伤
@@ -53,7 +57,7 @@ type Runner struct {
 	maxWait time.Duration
 }
 
-var ErrQueueFull = errors.New("AI 任务队列已满，请稍后再试")
+var ErrQueueFull = errors.New(i18n.ErrAIQueueFull)
 
 // NewRunner boots the worker pool. workers ≥ 1 controls upstream concurrency
 // (Bifrost is I/O-bound so 2–4 is plenty for a school deployment). cap is the
@@ -105,10 +109,10 @@ func (r *Runner) run(j Job) {
 	result, errMsg := r.execute(ctx, j)
 	if errMsg == "" && result != nil {
 		if b, err := json.Marshal(result); err == nil {
-			r.queue.SetResult(j.TaskID, string(b))
+			r.queue.SetResult(j.TaskID, j.TaskStartedAt, string(b))
 		}
 	}
-	r.queue.End(j.TaskID, errMsg)
+	r.queue.End(j.TaskID, j.TaskStartedAt, j.Kind, errMsg)
 	if errMsg != "" {
 		log.Printf("ai runner: task %d kind=%s failed: %s", j.TaskID, j.Kind, errMsg)
 	}
@@ -122,16 +126,16 @@ func (r *Runner) execute(ctx context.Context, j Job) (any, string) {
 	switch j.Kind {
 	case models.AITaskKindAnalyze:
 		var sub models.Submission
-		if err := r.db.First(&sub, j.SubmissionID).Error; err != nil {
-			return nil, fmt.Sprintf("提交不存在：%v", err)
+		if err := r.db.Where("id = ? AND created_at = ?", j.SubmissionID, j.SubmissionCreatedAt).First(&sub).Error; err != nil {
+			return nil, i18n.ErrAISubmissionNotFound(err)
 		}
 		var prob models.Problem
-		if err := r.db.First(&prob, sub.ProblemID).Error; err != nil {
-			return nil, fmt.Sprintf("题目不存在：%v", err)
+		if err := r.db.Where("id = ? AND created_at = ?", sub.ProblemID, j.ProblemCreatedAt).First(&prob).Error; err != nil {
+			return nil, i18n.ErrAIProblemNotFound(err)
 		}
-		text, prompt, raw, err := r.prompts.AnalyzeWrongAnswer(ctx, &prob, &sub, sub.TestcaseResultJSON)
-		r.queue.SetPrompt(j.TaskID, prompt)
-		r.queue.SetOutput(j.TaskID, raw)
+		text, prompt, raw, err := r.prompts.AnalyzeWrongAnswer(ctx, &prob, &sub, sub.TestcaseResultJSON, j.ForceAnalyze)
+		r.queue.SetPrompt(j.TaskID, j.TaskStartedAt, prompt)
+		r.queue.SetOutput(j.TaskID, j.TaskStartedAt, raw)
 		if err != nil {
 			return nil, err.Error()
 		}
@@ -150,16 +154,14 @@ func (r *Runner) execute(ctx context.Context, j Job) (any, string) {
 			if !parsed.OK {
 				if j.ForceAnalyze {
 					// 管理员强制模式：即便 ok=false 也不走拒绝流程；
-					// explanation 大概率是空串，回落到原文 text 展示，
-					// 并把模型写的 reason 当作注释附在页脚，方便老师手动
-					// 把控。绕过是故意的——触发方已经是管理员，知道自己
-					// 在做什么。
+					// 但若模型仍然违约返回空 explanation，就退化成一段
+					// 可读 Markdown，而不是把原始 JSON 塞给页面。
 					rejected = false
 					rejectReason = ""
 					if strings.TrimSpace(parsed.Explanation) != "" {
 						explanation = parsed.Explanation
 					} else {
-						explanation = text
+						explanation = forcedAnalyzeFallback(parsed.Reason)
 					}
 				} else {
 					rejected = true
@@ -173,7 +175,7 @@ func (r *Runner) execute(ctx context.Context, j Job) (any, string) {
 		// 一次 UPDATE 写回：explanation / rejected / reason 三列一起同步，
 		// 避免两次写引起的短暂不一致（学生端 race 查到 explanation 为空但
 		// rejected=false 之类）。
-		r.db.Model(&sub).Updates(map[string]any{
+		r.updateCurrentSubmission(j, map[string]any{
 			"ai_explanation":   explanation,
 			"ai_rejected":      rejected,
 			"ai_reject_reason": rejectReason,
@@ -186,22 +188,22 @@ func (r *Runner) execute(ctx context.Context, j Job) (any, string) {
 
 	case models.AITaskKindOptimize:
 		var sub models.Submission
-		if err := r.db.First(&sub, j.SubmissionID).Error; err != nil {
-			return nil, fmt.Sprintf("提交不存在：%v", err)
+		if err := r.db.Where("id = ? AND created_at = ?", j.SubmissionID, j.SubmissionCreatedAt).First(&sub).Error; err != nil {
+			return nil, i18n.ErrAISubmissionNotFound(err)
 		}
 		var prob models.Problem
-		if err := r.db.First(&prob, sub.ProblemID).Error; err != nil {
-			return nil, fmt.Sprintf("题目不存在：%v", err)
+		if err := r.db.Where("id = ? AND created_at = ?", sub.ProblemID, j.ProblemCreatedAt).First(&prob).Error; err != nil {
+			return nil, i18n.ErrAIProblemNotFound(err)
 		}
 		text, prompt, raw, err := r.prompts.OptimizeAC(ctx, &prob, &sub)
-		r.queue.SetPrompt(j.TaskID, prompt)
-		r.queue.SetOutput(j.TaskID, raw)
+		r.queue.SetPrompt(j.TaskID, j.TaskStartedAt, prompt)
+		r.queue.SetOutput(j.TaskID, j.TaskStartedAt, raw)
 		if err != nil {
 			return nil, err.Error()
 		}
 		// AC 没有"乱写"判定——直接把优化建议写回 ai_explanation（与错因分析
 		// 共用同一字段，AC / 非 AC 互斥）。
-		r.db.Model(&sub).Updates(map[string]any{
+		r.updateCurrentSubmission(j, map[string]any{
 			"ai_explanation":   text,
 			"ai_rejected":      false,
 			"ai_reject_reason": "",
@@ -209,17 +211,10 @@ func (r *Runner) execute(ctx context.Context, j Job) (any, string) {
 		return map[string]any{"explanation": text}, ""
 
 	case models.AITaskKindTag:
-		var groups []models.TagGroup
-		r.db.Order("order_index ASC, id ASC").Find(&groups)
-		var tags []models.Tag
-		r.db.Find(&tags)
-		byGroup := map[uint][]models.Tag{}
-		for _, t := range tags {
-			byGroup[t.GroupID] = append(byGroup[t.GroupID], t)
-		}
+		groups, byGroup := r.loadTagDictionary()
 		sug, prompt, raw, err := r.prompts.TagProblem(ctx, j.Raw, groups, byGroup)
-		r.queue.SetPrompt(j.TaskID, prompt)
-		r.queue.SetOutput(j.TaskID, raw)
+		r.queue.SetPrompt(j.TaskID, j.TaskStartedAt, prompt)
+		r.queue.SetOutput(j.TaskID, j.TaskStartedAt, raw)
 		if err != nil {
 			return nil, err.Error()
 		}
@@ -227,61 +222,78 @@ func (r *Runner) execute(ctx context.Context, j Job) (any, string) {
 
 	case models.AITaskKindGenTitle:
 		text, prompt, raw, err := r.prompts.GenTitle(ctx, j.Raw)
-		r.queue.SetPrompt(j.TaskID, prompt)
-		r.queue.SetOutput(j.TaskID, raw)
+		r.queue.SetPrompt(j.TaskID, j.TaskStartedAt, prompt)
+		r.queue.SetOutput(j.TaskID, j.TaskStartedAt, raw)
 		if err != nil {
 			return nil, err.Error()
 		}
 		// Admin 已经离开 ProblemEdit，结果要直接回写到 Problem 行，否则下次
 		// 进编辑页什么都看不到。一键解析 / 单项生成 都同理。
 		if j.ProblemID > 0 && text != "" {
-			r.db.Model(&models.Problem{}).Where("id = ?", j.ProblemID).Update("title", text)
+			r.updateCurrentProblem(j, map[string]any{"title": text})
 		}
 		return map[string]string{"title": text}, ""
 
 	case models.AITaskKindGenDesc:
 		text, prompt, raw, err := r.prompts.GenDesc(ctx, j.Raw)
-		r.queue.SetPrompt(j.TaskID, prompt)
-		r.queue.SetOutput(j.TaskID, raw)
+		r.queue.SetPrompt(j.TaskID, j.TaskStartedAt, prompt)
+		r.queue.SetOutput(j.TaskID, j.TaskStartedAt, raw)
 		if err != nil {
 			return nil, err.Error()
 		}
 		if j.ProblemID > 0 && text != "" {
-			r.db.Model(&models.Problem{}).Where("id = ?", j.ProblemID).Update("description", text)
+			r.updateCurrentProblem(j, map[string]any{"description": text})
 		}
 		return map[string]string{"description": text}, ""
 
 	case models.AITaskKindGenIdea:
 		text, prompt, raw, err := r.prompts.GenIdea(ctx, j.Raw)
-		r.queue.SetPrompt(j.TaskID, prompt)
-		r.queue.SetOutput(j.TaskID, raw)
+		r.queue.SetPrompt(j.TaskID, j.TaskStartedAt, prompt)
+		r.queue.SetOutput(j.TaskID, j.TaskStartedAt, raw)
 		if err != nil {
 			return nil, err.Error()
 		}
 		if j.ProblemID > 0 {
-			r.db.Model(&models.Problem{}).Where("id = ?", j.ProblemID).Update("solution_idea_md", text)
+			r.updateCurrentProblem(j, map[string]any{"solution_idea_md": text})
 		}
 		return map[string]string{"solution_idea_md": text}, ""
 
 	case models.AITaskKindGenExplain:
 		text, prompt, raw, err := r.prompts.GenExplain(ctx, j.Raw)
-		r.queue.SetPrompt(j.TaskID, prompt)
-		r.queue.SetOutput(j.TaskID, raw)
+		r.queue.SetPrompt(j.TaskID, j.TaskStartedAt, prompt)
+		r.queue.SetOutput(j.TaskID, j.TaskStartedAt, raw)
 		if err != nil {
 			return nil, err.Error()
 		}
 		if j.ProblemID > 0 {
-			r.db.Model(&models.Problem{}).Where("id = ?", j.ProblemID).Update("solution_md", text)
+			r.updateCurrentProblem(j, map[string]any{"solution_md": text})
 		}
 		return map[string]string{"solution_md": text}, ""
 
 	case models.AITaskKindGenAll:
 		res, prompt, raw, err := r.prompts.GenAll(ctx, j.Raw)
-		r.queue.SetPrompt(j.TaskID, prompt)
-		r.queue.SetOutput(j.TaskID, raw)
 		if err != nil {
+			r.queue.SetPrompt(j.TaskID, j.TaskStartedAt, prompt)
+			r.queue.SetOutput(j.TaskID, j.TaskStartedAt, raw)
 			return nil, err.Error()
 		}
+		// 一键填充顺手复用现有打标签流程，让标题/描述/思路/解析之外的
+		// 难度与标签也一起自动落库；不改 prompt_gen_all 的 JSON 契约，
+		// 继续沿用 prompt_tag 的判定规则与字典匹配。
+		var sug *TagSuggestion
+		groups, byGroup := r.loadTagDictionary()
+		tagPrompt := ""
+		tagRaw := ""
+		if len(groups) > 0 {
+			sug, tagPrompt, tagRaw, err = r.prompts.TagProblem(ctx, j.Raw, groups, byGroup)
+			if err != nil {
+				// 主流程已经成功，打标签只作为增强项；失败不该把整次一键填充打成 failed。
+				log.Printf("ai runner: gen_all auto-tag skipped for task %d: %v", j.TaskID, err)
+				sug = nil
+			}
+		}
+		r.queue.SetPrompt(j.TaskID, j.TaskStartedAt, joinAuditBlobs(prompt, tagPrompt, "AUTO TAG PROMPT"))
+		r.queue.SetOutput(j.TaskID, j.TaskStartedAt, joinAuditBlobs(raw, tagRaw, "AUTO TAG OUTPUT"))
 		// 把一键解析出来的四个字段回写到 Problem 行，只更新非空字段，admin
 		// 之前手动调整过但 AI 这轮没生成的字段不受影响。
 		if j.ProblemID > 0 && res != nil {
@@ -298,13 +310,117 @@ func (r *Runner) execute(ctx context.Context, j Job) (any, string) {
 			if res.SolutionMD != "" {
 				updates["solution_md"] = res.SolutionMD
 			}
+			if sug != nil && sug.Difficulty != "" {
+				updates["difficulty"] = sug.Difficulty
+			}
 			if len(updates) > 0 {
-				r.db.Model(&models.Problem{}).Where("id = ?", j.ProblemID).Updates(updates)
+				r.updateCurrentProblem(j, updates)
+			}
+			if sug != nil && len(sug.TagIDs) > 0 {
+				r.mergeCurrentProblemTags(j, sug.TagIDs)
 			}
 		}
-		return res, ""
+		out := map[string]any{
+			"title":            res.Title,
+			"description":      res.Description,
+			"solution_idea_md": res.SolutionIdeaMD,
+			"solution_md":      res.SolutionMD,
+		}
+		if sug != nil {
+			if sug.Difficulty != "" {
+				out["difficulty"] = sug.Difficulty
+			}
+			if len(sug.TagIDs) > 0 {
+				out["tag_ids"] = sug.TagIDs
+			}
+			if len(sug.Matched) > 0 {
+				out["matched"] = sug.Matched
+			}
+			if len(sug.Unmatched) > 0 {
+				out["unmatched"] = sug.Unmatched
+			}
+		}
+		return out, ""
 	}
-	return nil, fmt.Sprintf("unknown kind: %s", j.Kind)
+	return nil, i18n.ErrAIUnknownKind(j.Kind)
+}
+
+func forcedAnalyzeFallback(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "代码与题目要求不匹配"
+	}
+	return "## 错误定位\n\n当前代码里没有形成可正常判题的有效解题过程。\n\n" +
+		"## 错误原因\n\n这份代码与题目要求不匹配，本次被归类为：" + reason + "。\n\n" +
+		"## 如何修改\n\n" +
+		"- 先按题意补齐输入读取、核心计算和输出\n" +
+		"- 把占位内容或随机变量名改成有意义的写法\n" +
+		"- 保证代码真正围绕这道题的数据和要求来实现\n"
+}
+
+func (r *Runner) updateCurrentSubmission(j Job, updates map[string]any) {
+	if j.SubmissionID == 0 || j.SubmissionCreatedAt.IsZero() || len(updates) == 0 {
+		return
+	}
+	r.db.Model(&models.Submission{}).
+		Where("id = ? AND created_at = ?", j.SubmissionID, j.SubmissionCreatedAt).
+		Updates(updates)
+}
+
+func (r *Runner) updateCurrentProblem(j Job, updates map[string]any) {
+	if j.ProblemID == 0 || j.ProblemCreatedAt.IsZero() || len(updates) == 0 {
+		return
+	}
+	r.db.Model(&models.Problem{}).
+		Where("id = ? AND created_at = ?", j.ProblemID, j.ProblemCreatedAt).
+		Updates(updates)
+}
+
+func (r *Runner) mergeCurrentProblemTags(j Job, tagIDs []uint) {
+	if j.ProblemID == 0 || j.ProblemCreatedAt.IsZero() || len(tagIDs) == 0 {
+		return
+	}
+	seen := map[uint]bool{}
+	rows := make([]models.ProblemTag, 0, len(tagIDs))
+	for _, tagID := range tagIDs {
+		if tagID == 0 || seen[tagID] {
+			continue
+		}
+		seen[tagID] = true
+		rows = append(rows, models.ProblemTag{ProblemID: j.ProblemID, TagID: tagID})
+	}
+	if len(rows) == 0 {
+		return
+	}
+	var prob models.Problem
+	if err := r.db.Select("id").Where("id = ? AND created_at = ?", j.ProblemID, j.ProblemCreatedAt).First(&prob).Error; err != nil {
+		return
+	}
+	r.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&rows)
+}
+
+func (r *Runner) loadTagDictionary() ([]models.TagGroup, map[uint][]models.Tag) {
+	var groups []models.TagGroup
+	r.db.Order("order_index ASC, id ASC").Find(&groups)
+	var tags []models.Tag
+	r.db.Order("order_index ASC, id ASC").Find(&tags)
+	byGroup := map[uint][]models.Tag{}
+	for _, t := range tags {
+		byGroup[t.GroupID] = append(byGroup[t.GroupID], t)
+	}
+	return groups, byGroup
+}
+
+func joinAuditBlobs(primary, secondary, label string) string {
+	primary = strings.TrimSpace(primary)
+	secondary = strings.TrimSpace(secondary)
+	if primary == "" {
+		return secondary
+	}
+	if secondary == "" {
+		return primary
+	}
+	return primary + "\n\n===== " + label + " =====\n\n" + secondary
 }
 
 // jobTimeout chooses the per-job context deadline. When r.maxWait is set via

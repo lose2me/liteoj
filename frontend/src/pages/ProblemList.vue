@@ -13,6 +13,7 @@ interface ProblemRow {
   title: string
   difficulty: string
   my_status: string
+  ac_users: number
   tag_names?: string[]
   restricted_idea?: boolean
   restricted_solution?: boolean
@@ -23,7 +24,7 @@ const router = useRouter()
 const items = ref<ProblemRow[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(16)
 const q = ref('')
 const difficulty = ref<string>('')
 const tagId = ref<string>('')
@@ -92,16 +93,17 @@ const columns = [
   {
     title: t.problem.title,
     key: 'title',
+    render: (r: ProblemRow) => h('span', {}, r.title),
+  },
+  {
+    title: '',
+    key: 'restriction',
+    width: 104,
     render: (r: ProblemRow) => {
-      // 标题 + 已加入题单施加的限制 chip（仅当前用户 membership 命中才出现）。
-      // 独立访问时这些 chip 不该显示——后端已按成员关系过滤，前端只要原样渲染。
-      // 三类限制（禁用思路/题解/AI 解析）里任一命中，就统一挂一个"受题单
-      // 限制"chip；细节等学生进题目详情页再看，列表只做提示。
-      const nodes: any[] = [h('span', {}, r.title)]
       if (r.restricted_idea || r.restricted_solution || r.restricted_ai) {
-        nodes.push(h(NTag, { size: 'small', type: 'warning' }, { default: () => t.problem.restrictedByProblemsetTag }))
+        return h(NTag, { size: 'small', type: 'warning' }, { default: () => t.problem.restrictedByProblemsetTag })
       }
-      return h(NSpace, { size: 6, align: 'center' }, { default: () => nodes })
+      return null
     },
   },
   {
@@ -110,7 +112,16 @@ const columns = [
     render: (r: ProblemRow) =>
       (r.tag_names || []).map((n) => h(NTag, { size: 'small', class: 'mr-1' }, { default: () => n })),
   },
-  { title: t.problem.difficulty, key: 'difficulty', width: 70 },
+  {
+    title: t.problem.difficulty,
+    key: 'difficulty',
+    width: 88,
+  },
+  {
+    title: t.problem.acUsers,
+    key: 'ac_users',
+    width: 100,
+  },
 ]
 
 const rowProps = (row: ProblemRow) => ({
@@ -128,6 +139,7 @@ const rowProps = (row: ProblemRow) => ({
       <NButton type="primary" @click="page = 1; load()">{{ t.common.search }}</NButton>
     </NSpace>
     <NDataTable
+      class="problem-list-table"
       :columns="columns"
       :data="items"
       :row-props="rowProps"
@@ -140,3 +152,28 @@ const rowProps = (row: ProblemRow) => ({
     />
   </div>
 </template>
+
+<style scoped>
+.problem-list-table :deep(table) {
+  table-layout: auto;
+}
+
+.problem-list-table :deep(thead th:nth-child(3)),
+.problem-list-table :deep(tbody td:nth-child(3)) {
+  width: 1%;
+  padding-right: 8px;
+}
+
+.problem-list-table :deep(thead th:nth-child(4)),
+.problem-list-table :deep(tbody td:nth-child(4)) {
+  width: 1%;
+  padding-left: 0;
+  padding-right: 14px;
+  white-space: nowrap;
+}
+
+.problem-list-table :deep(thead th:nth-child(5)),
+.problem-list-table :deep(tbody td:nth-child(5)) {
+  padding-left: 24px;
+}
+</style>

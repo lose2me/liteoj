@@ -560,7 +560,7 @@ const rowProps = (row: Row) => ({
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--lo-subtle-border);
   border-radius: 6px;
 }
 .picker {
@@ -579,7 +579,7 @@ const rowProps = (row: Row) => ({
   margin-bottom: 6px;
 }
 .picker .list {
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--lo-subtle-border);
   border-radius: 6px;
   padding: 4px;
 }
@@ -596,14 +596,14 @@ const rowProps = (row: Row) => ({
   user-select: none;
 }
 .picker .row:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--lo-subtle-bg);
 }
 .picker .row.ordered {
   cursor: grab;
 }
 .picker .row.ordered:active {
   cursor: grabbing;
-  background: rgba(99, 226, 183, 0.08);
+  background: var(--lo-accent-bg-weak);
 }
 .picker .row-index {
   opacity: 0.7;
@@ -613,8 +613,8 @@ const rowProps = (row: Row) => ({
   text-align: center;
   padding: 1px 4px;
   border-radius: 3px;
-  background: rgba(99, 226, 183, 0.14);
-  color: rgba(99, 226, 183, 0.95);
+  background: var(--lo-accent-bg);
+  color: var(--lo-accent-fg);
 }
 .picker .row-text {
   flex: 1;
@@ -629,9 +629,9 @@ const rowProps = (row: Row) => ({
 /* Sortable 拖动态的视觉反馈：源行半透明、当前选中行轻微高亮。 */
 .picker .sortable-ghost {
   opacity: 0.35;
-  background: rgba(99, 226, 183, 0.18) !important;
+  background: var(--lo-accent-bg-strong) !important;
 }
 .picker .sortable-chosen {
-  background: rgba(99, 226, 183, 0.08);
+  background: var(--lo-accent-bg-weak);
 }
 </style>

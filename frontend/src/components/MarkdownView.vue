@@ -6,20 +6,24 @@
 // CJK punctuation, which left student-side formulas partially rendered; the
 // editor's own preview doesn't have that bug.
 //
-// `theme="dark"` is hardcoded to match App.vue's NConfigProvider (darkTheme);
-// without it MdPreview defaults to light mode and renders a white card on
-// our dark page background.
+// 跟随全站主题切换 md-editor-v3 的 dark / light 模式；否则 Naive UI 已经
+// 切到亮色时，预览区仍会保持深色面板，视觉割裂。
+import { computed } from 'vue'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
+import { useThemeStore } from '../stores/theme'
 
 defineProps<{ content: string }>()
+
+const theme = useThemeStore()
+const mdTheme = computed(() => theme.mode)
 </script>
 
 <template>
   <div class="markdown-body">
     <MdPreview
       :model-value="content || ''"
-      theme="dark"
+      :theme="mdTheme"
       language="zh-CN"
       preview-theme="github"
       :show-code-row-number="false"

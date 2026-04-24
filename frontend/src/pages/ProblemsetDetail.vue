@@ -221,7 +221,7 @@ const activeTab = computed<string>({
       </NTabPane>
       <NTabPane name="ranking" :tab="t.problemset.tabRanking">
         <div class="opacity-60 text-xs mb-2">{{ t.problemset.penaltyHint }}</div>
-        <Ranking :endpoint="rankingEndpoint" :hide-scope="true" :no-card="true" />
+        <Ranking :endpoint="rankingEndpoint" :hide-scope="true" />
       </NTabPane>
       <NTabPane name="submissions" :tab="t.problemset.tabSubs">
         <ProblemsetSubs :problemset-id="Number(route.params.id)" />

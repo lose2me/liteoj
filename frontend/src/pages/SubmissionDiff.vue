@@ -5,10 +5,14 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { http } from '../api/http'
 import { verdictType } from '../api/verdict'
+import { handleEditorZoomShortcut, useCodeEditorZoomStore } from '../stores/editorZoom'
+import { useThemeStore } from '../stores/theme'
 import { t } from '../i18n'
 
 const route = useRoute()
 const msg = useMessage()
+const theme = useThemeStore()
+const editorZoom = useCodeEditorZoomStore()
 
 const a = ref<any>(null)
 const b = ref<any>(null)
@@ -28,8 +32,20 @@ onMounted(load)
 
 const language = computed(() => {
   const l = a.value?.language
-  return l === 'cpp' ? 'cpp' : l === 'c' ? 'c' : l === 'java' ? 'java' : l === 'python' ? 'python' : l === 'go' ? 'go' : 'plaintext'
+  return l === 'cpp' ? 'cpp' : l === 'c' ? 'c' : l === 'java' ? 'java' : l === 'python' ? 'python' : 'plaintext'
 })
+
+const editorTheme = computed(() => (theme.isDark ? 'vs-dark' : 'vs'))
+const editorOptions = computed(() => ({
+  readOnly: true,
+  automaticLayout: true,
+  minimap: { enabled: false },
+  fontSize: editorZoom.monacoFontSize,
+}))
+
+const handleZoomKeydown = (event: KeyboardEvent) => {
+  handleEditorZoomShortcut(event, (action) => editorZoom.apply(action))
+}
 </script>
 
 <template>
@@ -46,14 +62,21 @@ const language = computed(() => {
     </NSpace>
     <NCard v-else-if="a && !b" embedded>{{ t.submission.diffNoOther }}</NCard>
 
-    <VueMonacoDiffEditor
-      v-if="a && b"
-      :original="b.code || ''"
-      :modified="a.code || ''"
-      :language="language"
-      theme="vs-dark"
-      height="600px"
-      :options="{ readOnly: true, automaticLayout: true, minimap: { enabled: false } }"
-    />
+    <div v-if="a && b" class="submission-diff-editor" @keydown.capture="handleZoomKeydown">
+      <VueMonacoDiffEditor
+        :original="b.code || ''"
+        :modified="a.code || ''"
+        :language="language"
+        :theme="editorTheme"
+        height="600px"
+        :options="editorOptions"
+      />
+    </div>
   </NCard>
 </template>
+
+<style scoped>
+.submission-diff-editor {
+  width: 100%;
+}
+</style>

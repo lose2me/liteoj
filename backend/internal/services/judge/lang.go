@@ -38,12 +38,4 @@ var Languages = map[string]Language{
 		Src: "main.py",
 		Run: []string{"/usr/bin/python3", "main.py"},
 	},
-	"go": {
-		ID:         "go",
-		Src:        "main.go",
-		Compile:    []string{"/usr/local/go/bin/go", "build", "-o", "main", "main.go"},
-		CompileOut: "main",
-		Run:        []string{"./main"},
-		Env:        []string{"GOCACHE=/tmp/.gocache", "GOPATH=/tmp/.go"},
-	},
 }

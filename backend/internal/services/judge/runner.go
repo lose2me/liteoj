@@ -3,9 +3,10 @@ package judge
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"strings"
 
+	"github.com/liteoj/liteoj/backend/internal/i18n"
 	"github.com/liteoj/liteoj/backend/internal/models"
 )
 
@@ -48,7 +49,7 @@ func NewRunner(client *Client) *Runner { return &Runner{Client: client} }
 func (r *Runner) Judge(ctx context.Context, in RunnerInput) (*RunnerOutput, error) {
 	lang, ok := Languages[in.Lang]
 	if !ok {
-		return &RunnerOutput{Verdict: models.VerdictCE, Message: "unsupported language"}, nil
+		return &RunnerOutput{Verdict: models.VerdictCE, Message: i18n.ErrUnsupportedLanguage}, nil
 	}
 
 	cpuNS := int64(in.CPULimitMS) * 1_000_000
@@ -64,7 +65,7 @@ func (r *Runner) Judge(ctx context.Context, in RunnerInput) (*RunnerOutput, erro
 	if lang.Compile != nil {
 		cmds := []Cmd{{
 			Args: lang.Compile,
-			Env:  append([]string{"PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"}, lang.Env...),
+			Env:  append([]string{"PATH=/usr/local/bin:/usr/bin:/bin"}, lang.Env...),
 			Files: []*File{
 				{Content: ""},
 				{Name: "stdout", Max: 10240},
@@ -81,7 +82,7 @@ func (r *Runner) Judge(ctx context.Context, in RunnerInput) (*RunnerOutput, erro
 			return nil, err
 		}
 		if len(results) != 1 {
-			return nil, fmt.Errorf("compile: unexpected result count %d", len(results))
+			return nil, errors.New(i18n.ErrJudgeCompileUnexpectedCount(len(results)))
 		}
 		res := results[0]
 		if res.Status != "Accepted" {
@@ -115,7 +116,7 @@ func (r *Runner) Judge(ctx context.Context, in RunnerInput) (*RunnerOutput, erro
 		runArgs := lang.Run
 		cmd := Cmd{
 			Args:        runArgs,
-			Env:         append([]string{"PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"}, lang.Env...),
+			Env:         append([]string{"PATH=/usr/local/bin:/usr/bin:/bin"}, lang.Env...),
 			Files:       []*File{{Content: tc.Input}, {Name: "stdout", Max: 1 << 20}, {Name: "stderr", Max: 1 << 16}},
 			CPULimit:    cpuNS,
 			ClockLimit:  cpuNS * 3,
@@ -204,10 +205,10 @@ func mapStatus(status string, exitStatus int) string {
 	}
 }
 
-// compareOutput decides AC / PE / WA by two tiers of equality:
+// compareOutput decides AC / WA by two tiers of equality:
 //
 //	byte-exact      → AC
-//	normalized      → PE (trailing whitespace / trailing empty lines only)
+//	normalized      → AC (trailing whitespace / trailing empty lines only)
 //	otherwise       → WA
 //
 // Called only when the sandbox reported Accepted; a failing sandbox status
@@ -217,7 +218,7 @@ func compareOutput(got, expected string) string {
 		return models.VerdictAC
 	}
 	if normalize(got) == normalize(expected) {
-		return models.VerdictPE
+		return models.VerdictAC
 	}
 	return models.VerdictWA
 }

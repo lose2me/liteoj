@@ -1,7 +1,17 @@
 # dependencies / build artifacts
 node_modules/
+frontend/.vite/
 frontend/dist/
 /dist/
+
+# Go binaries / test artifacts
+/liteoj
+/liteoj.exe
+/backend/liteoj
+/backend/liteoj.exe
+*.test
+*.prof
+coverage.out
 
 # runtime data
 data/
@@ -9,17 +19,15 @@ data/
 *.db-journal
 *.db-shm
 *.db-wal
+*.log
 
-# local config
-.env
-.env.local
+# local environment / machine-specific config
+config.toml
 
-# binary
-/liteoj
-/liteoj.exe
-
-# editors
+# editors / OS junk
 .vscode/
 .idea/
 .DS_Store
+Thumbs.db
 *.swp
+*.swo

@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/liteoj/liteoj/backend/internal/events"
+	"github.com/liteoj/liteoj/backend/internal/i18n"
 	"github.com/liteoj/liteoj/backend/internal/models"
 )
 
@@ -18,22 +19,13 @@ type HomeHandler struct {
 	Broker *events.Broker
 }
 
-const defaultHomeMarkdown = `# LiteOJ
-
-> 一个面向课堂的轻量 OJ，支持题库、题单、AI 解析。
-
-登录后可以开始刷题，或加入老师的题单。
-
-后台管理员可在"后台 · 概览"页替换这段文案。
-`
-
 // ensureSingleton 确保 id=1 的单例行存在——首次启动或 seed 缺失时兜底创建。
 func (h *HomeHandler) ensureSingleton() {
 	var hp models.HomePage
 	if err := h.DB.First(&hp, 1).Error; err == nil {
 		return
 	}
-	h.DB.Create(&models.HomePage{ID: 1, Content: defaultHomeMarkdown, UpdatedAt: time.Now()})
+	h.DB.Create(&models.HomePage{ID: 1, Content: i18n.DefaultHomeMarkdown, UpdatedAt: time.Now()})
 }
 
 func (h *HomeHandler) Get(c *gin.Context) {

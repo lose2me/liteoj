@@ -44,7 +44,7 @@ func TestChat_TruncatedBodySurfacesError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from truncated body, got nil")
 	}
-	if !strings.Contains(err.Error(), "read response body") {
+	if !strings.Contains(err.Error(), "读取响应失败") {
 		t.Errorf("error should identify read-body cause, got: %v", err)
 	}
 	if text != "" {
@@ -117,7 +117,7 @@ func TestChat_ContextDeadlineHonored(t *testing.T) {
 	}
 	// Either body-read error or context error — both are honest signals,
 	// unlike the old "unexpected end of JSON input".
-	if !strings.Contains(err.Error(), "context") && !strings.Contains(err.Error(), "read response body") {
+	if !strings.Contains(err.Error(), "context") && !strings.Contains(err.Error(), "读取响应失败") {
 		t.Errorf("error should mention context or read-body, got: %v", err)
 	}
 }

@@ -1,0 +1,60 @@
+/* Subtle theme tokens: surfaces that Naive UI's ConfigProvider doesn't reach
+ * (bare divs inside scoped styles). Toggled by the html.dark / html.light
+ * class switched in App.vue so light mode actually reads — previously every
+ * .members-row / .picker .list / .tag-row border and :hover background was
+ * keyed to rgba(255,255,255,…) and disappeared on white.
+ */
+html.dark {
+  --lo-page-bg: #101418;
+  --lo-header-bg: rgba(16, 20, 24, 0.92);
+  --lo-header-border: rgba(255, 255, 255, 0.08);
+  --lo-subtle-bg: rgba(255, 255, 255, 0.04);
+  --lo-subtle-border: rgba(255, 255, 255, 0.09);
+  --lo-accent-bg-weak: rgba(99, 226, 183, 0.08);
+  --lo-accent-bg: rgba(99, 226, 183, 0.14);
+  --lo-accent-bg-strong: rgba(99, 226, 183, 0.18);
+  --lo-accent-fg: rgba(99, 226, 183, 0.95);
+  --lo-active-bg: rgba(24, 160, 88, 0.12);
+  --lo-active-border: rgba(24, 160, 88, 0.5);
+}
+html.light {
+  --lo-page-bg: #efefef;
+  --lo-header-bg: rgba(255, 255, 255, 0.92);
+  --lo-header-border: rgba(0, 0, 0, 0.08);
+  --lo-subtle-bg: rgba(0, 0, 0, 0.035);
+  --lo-subtle-border: rgba(0, 0, 0, 0.12);
+  --lo-accent-bg-weak: rgba(24, 160, 88, 0.08);
+  --lo-accent-bg: rgba(24, 160, 88, 0.14);
+  --lo-accent-bg-strong: rgba(24, 160, 88, 0.22);
+  --lo-accent-fg: rgba(24, 120, 72, 1);
+  --lo-active-bg: rgba(24, 160, 88, 0.14);
+  --lo-active-border: rgba(24, 160, 88, 0.55);
+}
+
+html,
+body {
+  background: var(--lo-page-bg);
+}
+
+body {
+  margin: 0;
+  transition: background-color 0.18s ease;
+}
+
+#app {
+  min-height: 100vh;
+  background: inherit;
+}
+
+html.light .n-layout,
+html.light .n-layout-sider,
+html.light .n-layout-content {
+  background: var(--lo-page-bg) !important;
+}
+
+.app-header,
+.admin-header {
+  background: var(--lo-header-bg) !important;
+  border-bottom: 1px solid var(--lo-header-border) !important;
+  backdrop-filter: saturate(180%) blur(10px);
+}

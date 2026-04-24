@@ -20,12 +20,12 @@ type Queue struct {
 	broker     *events.Broker
 	ch         chan job
 	wg         sync.WaitGroup
-	workers    int
 	jobTimeout time.Duration
 }
 
 type job struct {
 	submissionID uint
+	createdAt    time.Time
 	userID       uint
 	problemID    uint
 	problemSetID *uint
@@ -54,7 +54,7 @@ func NewQueue(db *gorm.DB, runner *Runner, broker *events.Broker, workers, cap i
 	}
 	q := &Queue{
 		runner: runner, db: db, broker: broker,
-		ch: make(chan job, cap), workers: workers, jobTimeout: jobTimeout,
+		ch: make(chan job, cap), jobTimeout: jobTimeout,
 	}
 	for i := 0; i < workers; i++ {
 		q.wg.Add(1)
@@ -63,15 +63,10 @@ func NewQueue(db *gorm.DB, runner *Runner, broker *events.Broker, workers, cap i
 	return q
 }
 
-// Stats returns a snapshot of queue depth, capacity, and worker count for the
-// admin dashboard. Safe to call from any goroutine.
-func (q *Queue) Stats() (queueLen, queueCap, workers int) {
-	return len(q.ch), cap(q.ch), q.workers
-}
-
 func (q *Queue) Enqueue(sub *models.Submission, tcs []models.Testcase, cpuMS, memMB int) {
 	q.ch <- job{
 		submissionID: sub.ID,
+		createdAt:    sub.CreatedAt,
 		userID:       sub.UserID,
 		problemID:    sub.ProblemID,
 		problemSetID: sub.ProblemSetID,
@@ -99,21 +94,40 @@ func (q *Queue) run(j job) {
 	})
 	if err != nil {
 		log.Printf("judge queue: submission %d error: %v", j.submissionID, err)
-		q.db.Model(&models.Submission{}).Where("id = ?", j.submissionID).Updates(map[string]any{
+		if !q.updateCurrent(j, map[string]any{
 			"verdict": models.VerdictSE,
 			"message": err.Error(),
-		})
+		}) {
+			return
+		}
 		q.publishDone(j, models.VerdictSE, 0, 0)
 		return
 	}
-	q.db.Model(&models.Submission{}).Where("id = ?", j.submissionID).Updates(map[string]any{
+	if !q.updateCurrent(j, map[string]any{
 		"verdict":              result.Verdict,
 		"message":              result.Message,
 		"time_used_ms":         result.TimeMS,
 		"memory_used_kb":       result.MemoryKB,
 		"testcase_result_json": result.CaseResultRaw,
-	})
+	}) {
+		return
+	}
 	q.publishDone(j, result.Verdict, result.TimeMS, result.MemoryKB)
+}
+
+// updateCurrent persists the final verdict only if the target row is still the
+// original submission this worker started with. After "清空数据", old jobs may
+// finish late; matching on (id, created_at) prevents them from writing into a
+// recycled primary key if the platform creates new rows afterwards.
+func (q *Queue) updateCurrent(j job, updates map[string]any) bool {
+	res := q.db.Model(&models.Submission{}).
+		Where("id = ? AND created_at = ?", j.submissionID, j.createdAt).
+		Updates(updates)
+	if res.Error != nil {
+		log.Printf("judge queue: submission %d persist error: %v", j.submissionID, res.Error)
+		return false
+	}
+	return res.RowsAffected > 0
 }
 
 // publishDone broadcasts the final verdict so connected SSE clients can

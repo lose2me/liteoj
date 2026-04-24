@@ -2,6 +2,7 @@ package web
 
 import (
 	"io/fs"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,15 +21,17 @@ func Register(r *gin.Engine) {
 		return
 	}
 	sub := os.DirFS(dir)
-	fileServer := http.FileServer(http.FS(sub))
 	r.NoRoute(func(c *gin.Context) {
 		p := strings.TrimPrefix(c.Request.URL.Path, "/")
 		if p == "" {
 			p = "index.html"
 		}
-		if f, err := sub.Open(p); err == nil {
-			_ = f.Close()
-			fileServer.ServeHTTP(c.Writer, c.Request)
+		if data, err := fs.ReadFile(sub, p); err == nil {
+			ctype := mime.TypeByExtension(filepath.Ext(p))
+			if ctype == "" {
+				ctype = http.DetectContentType(data)
+			}
+			c.Data(http.StatusOK, ctype, data)
 			return
 		}
 		data, err := fs.ReadFile(sub, "index.html")

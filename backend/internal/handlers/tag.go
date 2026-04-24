@@ -93,6 +93,10 @@ func (h *TagHandler) UpdateGroup(c *gin.Context) {
 
 func (h *TagHandler) DeleteGroup(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
+	h.DB.Where(
+		"tag_id IN (?)",
+		h.DB.Model(&models.Tag{}).Select("id").Where("group_id = ?", id),
+	).Delete(&models.ProblemTag{})
 	if err := h.DB.Delete(&models.TagGroup{}, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -144,6 +148,7 @@ func (h *TagHandler) UpdateTag(c *gin.Context) {
 
 func (h *TagHandler) DeleteTag(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
+	h.DB.Where("tag_id = ?", id).Delete(&models.ProblemTag{})
 	if err := h.DB.Delete(&models.Tag{}, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

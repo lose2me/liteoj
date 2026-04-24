@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/liteoj/liteoj/backend/internal/i18n"
 )
 
 // Minimal go-judge client. Reference: https://github.com/criyle/go-judge
@@ -23,6 +25,30 @@ type File struct {
 	Name    string `json:"name,omitempty"`
 	Max     int64  `json:"max,omitempty"`
 	Pipe    bool   `json:"pipe,omitempty"`
+}
+
+// MarshalJSON keeps go-judge's file union shape valid.
+// In particular, an empty stdin must still be encoded as {"content":""}
+// rather than {}. The plain `omitempty` tags lose that distinction.
+func (f File) MarshalJSON() ([]byte, error) {
+	var out map[string]any
+	switch {
+	case f.Src != "":
+		out = map[string]any{"src": f.Src}
+	case f.FileID != "":
+		out = map[string]any{"fileId": f.FileID}
+	case f.Name != "":
+		out = map[string]any{"name": f.Name}
+		if f.Max != 0 {
+			out["max"] = f.Max
+		}
+		if f.Pipe {
+			out["pipe"] = true
+		}
+	default:
+		out = map[string]any{"content": f.Content}
+	}
+	return json.Marshal(out)
 }
 
 type Cmd struct {
@@ -53,31 +79,13 @@ type Result struct {
 
 type Client struct {
 	BaseURL string
-	// HTTP drives the /run path: keep-alive on, longer timeout, shared across
-	// concurrent submissions so TCP/HTTP bookkeeping is amortized.
-	HTTP *http.Client
-	// ProbeHTTP is for GET /version health checks only. It deliberately opens
-	// a fresh TCP connection each time (DisableKeepAlives) and runs on a
-	// shorter timeout. This sidesteps an annoying failure mode we saw when
-	// go-judge sits behind Windows' `netsh portproxy`: the iphlpsvc relay
-	// occasionally poisons pooled sockets so pooled /version calls silently
-	// hang until ctx deadline, while a fresh connect always succeeds. /run
-	// keeps the pooled client because that path is actively exercised and
-	// recovers quickly; /version is low-volume and can eat the handshake cost.
-	ProbeHTTP *http.Client
+	HTTP    *http.Client
 }
 
 func NewClient(base string) *Client {
 	return &Client{
 		BaseURL: base,
 		HTTP:    &http.Client{Timeout: 30 * time.Second},
-		ProbeHTTP: &http.Client{
-			Timeout: 3 * time.Second,
-			Transport: &http.Transport{
-				DisableKeepAlives: true,
-				MaxIdleConns:      -1,
-			},
-		},
 	}
 }
 
@@ -87,57 +95,49 @@ func (c *Client) Run(ctx context.Context, cmds []Cmd) ([]Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/run", bytes.NewReader(buf))
+	status, data, err := c.do(ctx, http.MethodPost, "/run", buf)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("go-judge: %d %s", resp.StatusCode, string(data))
+	if status/100 != 2 {
+		return nil, fmt.Errorf("%s", i18n.ErrGoJudgeStatus(status, string(data)))
 	}
 	var out []Result
 	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, fmt.Errorf("go-judge decode: %w: %s", err, string(data))
+		return nil, fmt.Errorf("%s", i18n.ErrGoJudgeDecode(err, string(data)))
 	}
 	return out, nil
 }
 
 func (c *Client) DeleteFile(ctx context.Context, id string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.BaseURL+"/file/"+id, nil)
+	status, data, err := c.do(ctx, http.MethodDelete, "/file/"+id, nil)
 	if err != nil {
 		return err
 	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return err
+	if status/100 != 2 {
+		return fmt.Errorf("go-judge: %d %s", status, strings.TrimSpace(string(data)))
 	}
-	defer resp.Body.Close()
 	return nil
 }
 
-// Version pings go-judge's /version endpoint. Used as a liveness probe and to
-// surface the sandbox build string in the admin dashboard. Uses ProbeHTTP
-// (no keep-alive) to avoid stale-socket flakes when routed through Windows
-// netsh portproxy / iphlpsvc.
-func (c *Client) Version(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/version", nil)
-	if err != nil {
-		return "", err
+func (c *Client) do(ctx context.Context, method, path string, body []byte) (int, []byte, error) {
+	url := c.BaseURL + path
+	var bodyReader io.Reader
+	if body != nil {
+		bodyReader = bytes.NewReader(body)
 	}
-	resp, err := c.ProbeHTTP.Do(req)
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
-		return "", err
+		return 0, nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("go-judge: %d %s", resp.StatusCode, strings.TrimSpace(string(data)))
-	}
-	return strings.TrimSpace(string(data)), nil
+	return resp.StatusCode, data, nil
 }
