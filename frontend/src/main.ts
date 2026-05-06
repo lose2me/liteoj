@@ -1,28 +1,64 @@
-import { createApp } from 'vue'
-import { createPinia } from 'pinia'
-import { config as mdConfig } from 'md-editor-v3'
+import { loader as monacoLoader } from '@guolao/vue-monaco-editor'
+import Cropper from 'cropperjs'
+import * as echarts from 'echarts'
+import hljs from 'highlight.js'
 import katex from 'katex'
-import 'katex/dist/katex.min.css'
-import router from './router'
+import { config as mdConfig } from 'md-editor-v3'
+import mermaid from 'mermaid'
+import * as monaco from 'monaco-editor'
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
+import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+import { createPinia } from 'pinia'
+import prettier from 'prettier/standalone'
+import prettierMarkdown from 'prettier/plugins/markdown'
+import screenfull from 'screenfull'
+import { createApp } from 'vue'
 import App from './App.vue'
+import router from './router'
+import 'cropperjs/dist/cropper.css'
+import 'katex/dist/katex.min.css'
 import 'virtual:uno.css'
 import './styles/theme-tokens.css'
 import './styles/markdown-overrides.css'
 import './styles/data-table-overrides.css'
 
-// md-editor-v3 lazy-loads KaTeX from a CDN by default. On slow / blocked
-// networks (common in mainland China deployments) the script can still be
-// in flight when the description renders, so formulas show as raw "$...$"
-// until the user scrolls or interacts. Bundling katex locally and handing
-// md-editor-v3 the instance makes rendering synchronous and fully offline.
-//
-// The highlight override below intercepts fenced blocks that declare no
-// language so highlight.js's auto-detect can't classify them — e.g.
-// "-5 7" as a diff "removed" line, which used to render in red. Labeled
-// blocks still flow through hljs unchanged.
+const monacoRuntime = self as typeof globalThis & {
+  MonacoEnvironment?: {
+    getWorker: (_workerId: string, label: string) => Worker
+  }
+}
+
+// vue-monaco-editor uses @monaco-editor/loader, whose default source is a CDN.
+// Force it onto the local npm package and Vite-managed workers instead.
+monacoRuntime.MonacoEnvironment = {
+  getWorker(_workerId, label) {
+    if (label === 'json') return new jsonWorker()
+    if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker()
+    if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker()
+    if (label === 'typescript' || label === 'javascript') return new tsWorker()
+    return new editorWorker()
+  },
+}
+monacoLoader.config({ monaco })
+
+// md-editor-v3 otherwise injects its helper libraries from unpkg/CDNs during
+// runtime, including KaTeX, highlight.js, cropper, screenfull and mermaid.
+// Supplying local npm instances keeps markdown edit/preview fully intranet-safe.
 mdConfig({
   editorExtensions: {
+    highlight: { instance: hljs },
+    prettier: {
+      prettierInstance: prettier,
+      parserMarkdownInstance: prettierMarkdown,
+    },
+    cropper: { instance: Cropper },
+    screenfull: { instance: screenfull },
+    mermaid: { instance: mermaid },
     katex: { instance: katex },
+    echarts: { instance: echarts },
   },
   markdownItConfig(md) {
     md.set({

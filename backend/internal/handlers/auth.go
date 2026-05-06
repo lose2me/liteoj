@@ -38,6 +38,20 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": i18n.ErrBadCredentials})
 		return
 	}
+	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+		if err := bumpUserLoginVersion(tx, u.ID); err != nil {
+			return err
+		}
+		current, err := loadUserTokenState(tx, u.ID)
+		if err != nil {
+			return err
+		}
+		u = *current
+		return nil
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.ErrIssueToken})
+		return
+	}
 	tok, err := auth.Issue(h.C.JWTSecret, h.C.JWTTTL(), &u)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.ErrIssueToken})
@@ -77,7 +91,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.ErrHashFailed})
 		return
 	}
-	if err := h.DB.Model(&u).Update("password_hash", hash).Error; err != nil {
+	if err := updateUserPassword(h.DB, u.ID, hash); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.ErrUpdateFailed})
 		return
 	}

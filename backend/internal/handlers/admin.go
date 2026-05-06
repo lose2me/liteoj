@@ -213,6 +213,7 @@ func (h *AdminHandler) UpdateUser(c *gin.Context) {
 			return
 		}
 		updates["password_hash"] = hash
+		updates["login_version"] = gorm.Expr(loginVersionBumpExpr)
 	}
 	if err := h.DB.Model(&models.User{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

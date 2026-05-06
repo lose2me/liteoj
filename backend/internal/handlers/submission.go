@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -98,6 +100,15 @@ func (h *SubmissionHandler) Submit(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": i18n.ErrNoTestData})
 		return
 	}
+	if err := h.enforceSubmitRateLimit(middleware.CurrentUserID(c), time.Now()); err != nil {
+		var rlErr rateLimitError
+		if errors.As(err, &rlErr) {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": rlErr.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	sub := &models.Submission{
 		UserID:       middleware.CurrentUserID(c),
@@ -137,6 +148,31 @@ func (h *SubmissionHandler) Submit(c *gin.Context) {
 		"submission_id": sub.ID,
 		"verdict":       models.VerdictPending,
 	})
+}
+
+func (h *SubmissionHandler) enforceSubmitRateLimit(userID uint, now time.Time) error {
+	if h == nil || h.DB == nil || h.C == nil || h.C.SubmitLimitPerMinute <= 0 || userID == 0 {
+		return nil
+	}
+	cutoff := now.Add(-time.Minute)
+	var recent int64
+	if err := h.DB.Model(&models.Submission{}).
+		Where("user_id = ? AND created_at >= ?", userID, cutoff).
+		Count(&recent).Error; err != nil {
+		return err
+	}
+	if recent >= int64(h.C.SubmitLimitPerMinute) {
+		return rateLimitError{limit: h.C.SubmitLimitPerMinute}
+	}
+	return nil
+}
+
+type rateLimitError struct {
+	limit int
+}
+
+func (e rateLimitError) Error() string {
+	return i18n.ErrSubmitRateLimited(e.limit)
 }
 
 // List returns a paginated submission list. All authenticated users see every

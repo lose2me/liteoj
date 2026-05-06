@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/liteoj/liteoj/backend/internal/auth"
 	"github.com/liteoj/liteoj/backend/internal/i18n"
@@ -54,7 +55,11 @@ func (h *AdminHandler) BulkCreateUsers(c *gin.Context) {
 		var existing models.User
 		tx := h.DB.Where("username = ?", username).First(&existing)
 		if tx.Error == nil {
-			h.DB.Model(&existing).Updates(map[string]any{"name": name, "password_hash": hash})
+			h.DB.Model(&existing).Updates(map[string]any{
+				"name":          name,
+				"password_hash": hash,
+				"login_version": gorm.Expr(loginVersionBumpExpr),
+			})
 			updated++
 			continue
 		}

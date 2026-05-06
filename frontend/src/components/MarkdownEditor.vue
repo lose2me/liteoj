@@ -31,6 +31,7 @@ const editorStyle = computed(() => ({ height: props.height || '420px' }))
       :style="editorStyle"
       :theme="mdTheme"
       preview-theme="github"
+      code-theme="atom"
       language="zh-CN"
       :show-code-row-number="false"
       :toolbars-exclude="['save', 'htmlPreview', 'github', 'mermaid', 'prettier', 'pageFullscreen']"

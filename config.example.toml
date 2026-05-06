@@ -35,6 +35,8 @@ queue_cap = 256
 # worker 会卡到这个时间才把该提交判为 SE 并释放。默认 120；判题机连通时
 # 基本用不到这么久——调低能让"判题机掉线"的故障更快可见。
 max_wait_seconds = 120
+# 单个用户每分钟最多允许成功创建多少条提交。0 表示不限制。
+submit_limit_per_minute = 20
 
 [ai]
 enabled = true

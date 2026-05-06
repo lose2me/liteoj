@@ -10,20 +10,23 @@ import (
 )
 
 type Claims struct {
-	UserID   uint        `json:"uid"`
-	Username string      `json:"usr"`
-	Role     models.Role `json:"role"`
+	UserID       uint        `json:"uid"`
+	Username     string      `json:"usr"`
+	Role         models.Role `json:"role"`
+	LoginVersion int         `json:"lv"`
 	jwt.RegisteredClaims
 }
 
 func Issue(secret string, ttl time.Duration, u *models.User) (string, error) {
+	now := time.Now()
 	claims := Claims{
-		UserID:   u.ID,
-		Username: u.Username,
-		Role:     u.Role,
+		UserID:       u.ID,
+		Username:     u.Username,
+		Role:         u.Role,
+		LoginVersion: u.LoginVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			IssuedAt:  jwt.NewNumericDate(now),
 		},
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

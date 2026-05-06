@@ -26,6 +26,7 @@ const mdTheme = computed(() => theme.mode)
       :theme="mdTheme"
       language="zh-CN"
       preview-theme="github"
+      code-theme="atom"
       :show-code-row-number="false"
     />
   </div>

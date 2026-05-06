@@ -40,13 +40,13 @@ const (
 
 // AI
 const (
-	ErrAIAcNoAnalyze             = "AC 提交无需解析"
-	ErrAIOptNonAC                = "仅 AC 提交可生成优化建议"
-	ErrAIQueueFull               = "AI 任务队列已满，请稍后再试"
-	ErrAIEnabledDisabled         = "AI 未启用（设置 ai.enabled=true 并配置 bifrost_*）"
-	ErrAIConfigMissing           = "AI 未配置（bifrost_base_url / bifrost_api_key 为空）"
-	ErrAINeedRaw                 = "请先在「详细」里粘贴题目原文"
-	ErrAIEmptyResponse           = "AI 返回空响应"
+	ErrAIAcNoAnalyze     = "AC 提交无需解析"
+	ErrAIOptNonAC        = "仅 AC 提交可生成优化建议"
+	ErrAIQueueFull       = "AI 任务队列已满，请稍后再试"
+	ErrAIEnabledDisabled = "AI 未启用（设置 ai.enabled=true 并配置 bifrost_*）"
+	ErrAIConfigMissing   = "AI 未配置（bifrost_base_url / bifrost_api_key 为空）"
+	ErrAINeedRaw         = "请先在「详细」里粘贴题目原文"
+	ErrAIEmptyResponse   = "AI 返回空响应"
 )
 
 // Admin bulk-create users
@@ -114,6 +114,10 @@ func ParseAITaskSubjectProblem(subject string) (uint, bool) {
 
 func ErrAIPromptMissing(key string) string {
 	return fmt.Sprintf("AI 提示词未配置：请在 config.toml 的 [ai] 下设置 %s", key)
+}
+
+func ErrSubmitRateLimited(limit int) string {
+	return fmt.Sprintf("提交过于频繁：每分钟最多 %d 次", limit)
 }
 
 func ErrAISubmissionNotFound(err error) string {

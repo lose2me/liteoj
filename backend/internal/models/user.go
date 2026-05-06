@@ -14,6 +14,7 @@ type User struct {
 	Username     string     `gorm:"uniqueIndex;size:64;not null" json:"username"`
 	Name         string     `gorm:"size:128" json:"name"`
 	PasswordHash string     `gorm:"size:255;not null" json:"-"`
+	LoginVersion int        `gorm:"not null;default:0" json:"-"`
 	Role         Role       `gorm:"size:16;not null;default:student" json:"role"`
 	LastSeenAt   *time.Time `gorm:"index" json:"last_seen_at,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`

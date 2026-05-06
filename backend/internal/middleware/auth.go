@@ -84,7 +84,7 @@ func OptionalAuth(c *config.Config, db *gorm.DB) gin.HandlerFunc {
 
 // applyClaims resolves the token's user id against the database and writes the
 // current authoritative user identity into gin ctx. Returning false means the
-// token refers to a user that no longer exists.
+// token is stale or refers to a user that no longer exists.
 func applyClaims(ctx *gin.Context, claims *auth.Claims, db *gorm.DB) bool {
 	if db == nil {
 		ctx.Set(CtxUserID, claims.UserID)
@@ -93,7 +93,10 @@ func applyClaims(ctx *gin.Context, claims *auth.Claims, db *gorm.DB) bool {
 		return true
 	}
 	var u models.User
-	if err := db.Select("id", "username", "role").First(&u, claims.UserID).Error; err != nil {
+	if err := db.Select("id", "username", "role", "login_version").First(&u, claims.UserID).Error; err != nil {
+		return false
+	}
+	if claims.LoginVersion != u.LoginVersion {
 		return false
 	}
 	ctx.Set(CtxUserID, u.ID)

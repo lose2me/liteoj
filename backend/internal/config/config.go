@@ -38,6 +38,9 @@ type Config struct {
 	// 避免 queue_workers=1 + 长 TCP 超时造成后续提交被无限期堵。默认 120；
 	// 判题机通畅时几乎用不到这个上限。
 	JudgeMaxWaitSeconds int
+	// SubmitLimitPerMinute 限制单个用户每分钟最多成功创建多少条提交。
+	// <= 0 表示不限制。
+	SubmitLimitPerMinute int
 
 	BifrostBaseURL string
 	BifrostAPIKey  string
@@ -95,13 +98,14 @@ type tomlConfig struct {
 	} `toml:"admin_danger"`
 
 	Judge struct {
-		BaseURL        string   `toml:"base_url"`
-		Langs          []string `toml:"langs"`
-		DefaultCPUMS   int      `toml:"default_cpu_ms"`
-		DefaultMemMB   int      `toml:"default_mem_mb"`
-		QueueWorkers   int      `toml:"queue_workers"`
-		QueueCap       int      `toml:"queue_cap"`
-		MaxWaitSeconds int      `toml:"max_wait_seconds"`
+		BaseURL              string   `toml:"base_url"`
+		Langs                []string `toml:"langs"`
+		DefaultCPUMS         int      `toml:"default_cpu_ms"`
+		DefaultMemMB         int      `toml:"default_mem_mb"`
+		QueueWorkers         int      `toml:"queue_workers"`
+		QueueCap             int      `toml:"queue_cap"`
+		MaxWaitSeconds       int      `toml:"max_wait_seconds"`
+		SubmitLimitPerMinute int      `toml:"submit_limit_per_minute"`
 	} `toml:"judge"`
 
 	AI struct {
@@ -164,6 +168,7 @@ func Load() *Config {
 		JudgeQueueWorkers:            orInt(t.Judge.QueueWorkers, 1),
 		JudgeQueueCap:                orInt(t.Judge.QueueCap, 256),
 		JudgeMaxWaitSeconds:          orInt(t.Judge.MaxWaitSeconds, 120),
+		SubmitLimitPerMinute:         nonNegativeInt(t.Judge.SubmitLimitPerMinute),
 		BifrostBaseURL:               t.AI.BifrostBaseURL,
 		BifrostAPIKey:                t.AI.BifrostAPIKey,
 		BifrostModel:                 or(t.AI.BifrostModel, "deepseek-chat"),
@@ -207,6 +212,13 @@ func orInt(v, fallback int) int {
 func orSlice(v, fallback []string) []string {
 	if len(v) == 0 {
 		return fallback
+	}
+	return v
+}
+
+func nonNegativeInt(v int) int {
+	if v < 0 {
+		return 0
 	}
 	return v
 }
