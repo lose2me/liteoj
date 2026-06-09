@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/liteoj/liteoj/backend/internal/auth"
-	"github.com/liteoj/liteoj/backend/internal/config"
+	"github.com/liteoj/liteoj/backend/internal/control"
 	"github.com/liteoj/liteoj/backend/internal/i18n"
 	"github.com/liteoj/liteoj/backend/internal/models"
 )
@@ -32,7 +32,7 @@ var seen = lastSeenThrottle{m: map[uint]time.Time{}}
 
 const throttleWindow = 60 * time.Second
 
-func Auth(c *config.Config, db *gorm.DB) gin.HandlerFunc {
+func Auth(live *control.LiveConfig, db *gorm.DB) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		raw := ctx.GetHeader("Authorization")
 		if raw == "" {
@@ -44,7 +44,8 @@ func Auth(c *config.Config, db *gorm.DB) gin.HandlerFunc {
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": i18n.ErrBadAuthHeader})
 			return
 		}
-		claims, err := auth.Parse(c.JWTSecret, parts[1])
+		cfg := live.Current()
+		claims, err := auth.Parse(cfg.JWTSecret, parts[1])
 		if err != nil {
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": i18n.ErrInvalidToken})
 			return
@@ -58,9 +59,8 @@ func Auth(c *config.Config, db *gorm.DB) gin.HandlerFunc {
 }
 
 // OptionalAuth 同 Auth 但缺省 / 无效 token 不 abort，只是不写入 user ctx。
-// 用于公开页面（如 /problems 列表）：匿名能拿到数据，登录用户能额外看到
-// my_status 等与身份相关的字段。
-func OptionalAuth(c *config.Config, db *gorm.DB) gin.HandlerFunc {
+// 用于公开接口：匿名也能拿到数据，登录用户则能额外得到 my_status 等身份相关字段。
+func OptionalAuth(live *control.LiveConfig, db *gorm.DB) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		raw := ctx.GetHeader("Authorization")
 		if raw == "" {
@@ -72,7 +72,8 @@ func OptionalAuth(c *config.Config, db *gorm.DB) gin.HandlerFunc {
 			ctx.Next()
 			return
 		}
-		claims, err := auth.Parse(c.JWTSecret, parts[1])
+		cfg := live.Current()
+		claims, err := auth.Parse(cfg.JWTSecret, parts[1])
 		if err != nil {
 			ctx.Next()
 			return

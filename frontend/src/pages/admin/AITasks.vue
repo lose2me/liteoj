@@ -123,6 +123,7 @@ const kindLabel = (k: string) => {
   if (k === 'gen_desc') return t.adminDashboard.aiKindGenDesc
   if (k === 'gen_idea') return t.adminDashboard.aiKindGenIdea
   if (k === 'gen_explain') return t.adminDashboard.aiKindGenExplain
+  if (k === 'gen_testcases') return t.adminDashboard.aiKindGenTestcases
   if (k === 'gen_all') return t.adminDashboard.aiKindGenAll
   return k
 }
@@ -158,6 +159,7 @@ const kindOptions: SelectOption[] = [
   { label: t.adminDashboard.aiKindGenDesc, value: 'gen_desc' },
   { label: t.adminDashboard.aiKindGenIdea, value: 'gen_idea' },
   { label: t.adminDashboard.aiKindGenExplain, value: 'gen_explain' },
+  { label: t.adminDashboard.aiKindGenTestcases, value: 'gen_testcases' },
   { label: t.adminDashboard.aiKindGenAll, value: 'gen_all' },
 ]
 

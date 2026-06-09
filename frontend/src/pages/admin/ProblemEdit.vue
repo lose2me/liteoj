@@ -225,6 +225,14 @@ const runAIGenExplain = () => runAI(
   'explain', 'ai-gen-explain',
   (d) => { p.value.solution_md = d.solution_md },
 )
+const runAIGenTestcases = () => runAI(
+  'testcases', 'ai-gen-testcases',
+  (d) => {
+    if (Array.isArray(d.testcases) && d.testcases.length) {
+      appendGeneratedTestcasesLocally(d.testcases)
+    }
+  },
+)
 const runAIGenAll = () => runAI(
   'all', 'ai-gen-all',
   (d) => {
@@ -310,6 +318,9 @@ const tcColumns = [
         </NButton>
         <NButton :disabled="aiAnyRunning" :loading="aiBusy.explain" @click="runAIGenExplain">
           {{ t.problemAdmin.aiGenExplain }}
+        </NButton>
+        <NButton :disabled="aiAnyRunning" :loading="aiBusy.testcases" @click="runAIGenTestcases">
+          {{ t.problemAdmin.aiGenTestcases }}
         </NButton>
         <NButton :disabled="aiAnyRunning" :loading="aiBusy.tag" @click="runAITag">
           {{ t.problemAdmin.aiTag }}

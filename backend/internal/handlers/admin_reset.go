@@ -31,8 +31,9 @@ func (h *AdminHandler) ResetData(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": i18n.ErrBadRequest})
 		return
 	}
+	cfg := h.Live.Current()
 
-	want := strings.TrimSpace(h.C.AdminDangerSecondaryPassword)
+	want := strings.TrimSpace(cfg.AdminDangerSecondaryPassword)
 	if want == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": i18n.ErrDangerSecondaryPasswordMissing})
 		return
@@ -42,7 +43,7 @@ func (h *AdminHandler) ResetData(c *gin.Context) {
 		return
 	}
 
-	hash, err := auth.HashPassword(h.C.AdminInitPassword)
+	hash, err := auth.HashPassword(cfg.AdminInitPassword)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -76,12 +77,12 @@ func (h *AdminHandler) ResetData(c *gin.Context) {
 				return err
 			}
 		}
-		if err := resetAutoIncrementSequences(tx, h.C.DBDriver, seqTables); err != nil {
+		if err := resetAutoIncrementSequences(tx, cfg.DBDriver, seqTables); err != nil {
 			return err
 		}
 		admin := &models.User{
-			Username:     h.C.AdminInitUsername,
-			Name:         h.C.AdminInitName,
+			Username:     cfg.AdminInitUsername,
+			Name:         cfg.AdminInitName,
 			PasswordHash: hash,
 			Role:         models.RoleAdmin,
 		}
@@ -92,7 +93,7 @@ func (h *AdminHandler) ResetData(c *gin.Context) {
 	}
 
 	uploadWarning := ""
-	if err := clearUploadDir(h.C.UploadDir); err != nil {
+	if err := clearUploadDir(cfg.UploadDir); err != nil {
 		uploadWarning = err.Error()
 	}
 

@@ -13,6 +13,7 @@ const (
 	AITaskKindGenDesc    = "gen_desc"    // admin: generate the problem description (incl. IO sections)
 	AITaskKindGenIdea    = "gen_idea"    // admin: generate a code-free solution idea
 	AITaskKindGenExplain = "gen_explain" // admin: generate the full solution markdown
+	AITaskKindGenTestcases = "gen_testcases" // admin: extract explicit sample IO into testcases only
 	AITaskKindGenAll     = "gen_all"     // admin: 一键填充 — merged single-call flow
 
 	AITaskStatusRunning = "running"

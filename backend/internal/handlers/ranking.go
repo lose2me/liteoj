@@ -28,6 +28,7 @@ type rankRow struct {
 	AK           int        `json:"ak,omitempty"`
 	LastActiveAt *time.Time `json:"last_active_at,omitempty"`
 	// Problemset only:
+	BonusScore int             `json:"bonus_score,omitempty"`
 	PenaltyMin int             `json:"penalty_min,omitempty"`
 	Results    map[uint]string `json:"results,omitempty"` // problem_id → best verdict in-set
 }
@@ -234,12 +235,17 @@ func computeAKPerUser(db *gorm.DB, since time.Time) map[uint]int {
 
 func (h *RankingHandler) serveProblemset(c *gin.Context, psid uint, scope string) {
 	since := scopeStart(scope)
+	var ps models.ProblemSet
+	if err := h.DB.Select("id", "enable_bonus").First(&ps, psid).Error; err != nil && err != gorm.ErrRecordNotFound {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Item order drives the A/B/C… labels the frontend renders.
 	var items []models.ProblemSetItem
 	h.DB.Where("problem_set_id = ?", psid).Order("order_index ASC, id ASC").Find(&items)
 	if len(items) == 0 {
-		c.JSON(http.StatusOK, gin.H{"items": []rankRow{}, "problems": []any{}})
+		c.JSON(http.StatusOK, gin.H{"items": []rankRow{}, "problems": []any{}, "bonus_enabled": ps.EnableBonus})
 		return
 	}
 	problemIDs := make([]uint, 0, len(items))
@@ -273,101 +279,16 @@ func (h *RankingHandler) serveProblemset(c *gin.Context, psid uint, scope string
 	// reconstruct "attempts before first AC" and the freshest non-AC verdict.
 	// ai_explanation / ai_rejected are pulled too because an AI Analyze used
 	// in-set also contributes +20 min to penalty (mirroring a wrong attempt).
-	type rawRow struct {
-		UserID        uint
-		ProblemID     uint
-		Verdict       string
-		TimeUsedMS    int
-		CreatedAt     time.Time
-		AIExplanation string
-		AIRejected    bool
-	}
-	q := h.DB.Table("submissions").
-		Select("user_id, problem_id, verdict, time_used_ms, created_at, ai_explanation, ai_rejected").
-		Where("problem_set_id = ? AND problem_id IN ?", psid, problemIDs).
-		Where("verdict IN ?", []string{
-			models.VerdictAC, models.VerdictWA, models.VerdictTLE,
-			models.VerdictMLE, models.VerdictOLE, models.VerdictRE,
-			models.VerdictCE, models.VerdictPE,
-		}).
-		// 题单层面"踢人 = 从排名中消失"靠 anti-join ban 表实现：submissions 不删，
-		// 只在聚合时跳过被 ban 的 user。/submissions 全站列表无此过滤，学生历史
-		// 记录依旧完整可见——与 handlers/admin.go:RemoveProblemSetMember 配套。
-		Where("NOT EXISTS (SELECT 1 FROM problem_set_bans b WHERE b.problem_set_id = submissions.problem_set_id AND b.user_id = submissions.user_id)").
-		Order("user_id ASC, problem_id ASC, created_at ASC")
-	if !since.IsZero() {
-		q = q.Where("created_at >= ?", since)
-	}
-	var raw []rawRow
-	q.Scan(&raw)
-
-	type pairAgg struct {
-		FirstAC        bool
-		WABeforeAC     int    // counts WA/TLE/MLE/RE/CE attempts strictly before first AC
-		AIUsedBeforeAC int    // counts successful AI analyses on non-AC subs before first AC
-		LatestNonAC    string // most recent non-AC verdict (used if no AC yet)
-		LatestNonACAt  time.Time
-	}
-	pairs := map[struct{ u, p uint }]*pairAgg{}
-	for _, r := range raw {
-		k := struct{ u, p uint }{r.UserID, r.ProblemID}
-		a, ok := pairs[k]
-		if !ok {
-			a = &pairAgg{}
-			pairs[k] = a
-		}
-		if r.Verdict == models.VerdictAC {
-			if !a.FirstAC {
-				a.FirstAC = true
-			}
-			continue
-		}
-		if !a.FirstAC {
-			a.WABeforeAC++
-			// AI usage penalty only counts a *successful* analysis: rejected
-			// runs produced no explanation for the student so they shouldn't
-			// be charged. Optimize / tag / gen_* tasks don't write
-			// ai_explanation on submissions at all, so this check is safe.
-			if r.AIExplanation != "" && !r.AIRejected {
-				a.AIUsedBeforeAC++
-			}
-		}
-		if r.CreatedAt.After(a.LatestNonACAt) {
-			a.LatestNonAC = r.Verdict
-			a.LatestNonACAt = r.CreatedAt
-		}
+	perUser, err := loadProblemSetRankRows(h.DB, psid, since)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
-	perUser := map[uint]*rankRow{}
-	// 把题单的全体成员先都塞进 perUser——即使 0 提交也要在排行榜里露面。
-	// admin 视角可能看"全局" scope 里会出现非成员的提交（特殊情况：学生退
-	// 出题单后历史提交仍在），所以聚合阶段遇到新 user_id 仍然会 append，成
-	// 员表只负责兜底"未提交过的人"。
-	var memberIDs []uint
-	h.DB.Model(&models.ProblemSetMember{}).
-		Where("problem_set_id = ?", psid).
-		Pluck("user_id", &memberIDs)
-	for _, uid := range memberIDs {
-		perUser[uid] = &rankRow{UserID: uid, Results: map[uint]string{}}
-	}
-	for k, a := range pairs {
-		u, ok := perUser[k.u]
-		if !ok {
-			u = &rankRow{UserID: k.u, Results: map[uint]string{}}
-			perUser[k.u] = u
-		}
-		if a.FirstAC {
-			u.ACCount++
-			// ICPC-style penalty: 20 minutes per wrong attempt preceding the
-			// first AC, per problem. Additionally, each successful AI analysis
-			// used on an in-set non-AC submission before that first AC adds
-			// another 20 min — discourages offloading to AI. No wall-clock
-			// time component — keeps the math local to attempts so
-			// ps.StartTime being optional is fine.
-			u.PenaltyMin += (a.WABeforeAC + a.AIUsedBeforeAC) * 20
-			u.Results[k.p] = models.VerdictAC
-		} else if a.LatestNonAC != "" {
-			u.Results[k.p] = a.LatestNonAC
+	if ps.EnableBonus {
+		if err := applyProblemSetBonusScores(h.DB, psid, perUser); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
 	}
 
@@ -377,16 +298,12 @@ func (h *RankingHandler) serveProblemset(c *gin.Context, psid uint, scope string
 	for _, r := range perUser {
 		rows = append(rows, *r)
 	}
-	sortSliceStable(rows, func(a, b rankRow) bool {
-		if a.ACCount != b.ACCount {
-			return a.ACCount > b.ACCount
-		}
-		return a.PenaltyMin < b.PenaltyMin
-	})
+	sortSliceStable(rows, outranksProblemSetRow)
 	c.JSON(http.StatusOK, gin.H{
-		"items":    rows,
-		"scope":    scope,
-		"problems": orderedProblems,
+		"items":         rows,
+		"scope":         scope,
+		"problems":      orderedProblems,
+		"bonus_enabled": ps.EnableBonus,
 	})
 }
 

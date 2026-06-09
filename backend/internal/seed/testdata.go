@@ -731,6 +731,15 @@ func seedAITasks(db *gorm.DB, students []models.User) error {
 			Output:     "## 题目描述\n\n给定一个带权有向图 ...\n\n## 输入格式\n\n第一行 $n, m, s$ ...",
 		},
 		{
+			Kind: models.AITaskKindGenTestcases, UserID: 1, Username: "超级管理员",
+			Subject: "problem #4", Status: models.AITaskStatusDone,
+			StartedAt:  base.Add(-22 * time.Minute),
+			FinishedAt: finished(21),
+			DurationMS: 9_600,
+			Prompt:     "## system\n你是 OJ 测试用例提取助手。...\n\n## user\nDijkstra 最短路题干 ...",
+			Output:     `{"testcases":[{"input":"4 4 1\n1 2 2\n1 3 5\n2 3 2\n3 4 1\n","expected_output":"0 2 4 5\n"}]}`,
+		},
+		{
 			Kind: models.AITaskKindGenAll, UserID: 1, Username: "超级管理员",
 			Subject: "problem #5", Status: models.AITaskStatusFailed,
 			StartedAt:  base.Add(-15 * time.Minute),

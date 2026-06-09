@@ -13,6 +13,7 @@ import (
 
 	"github.com/liteoj/liteoj/backend/internal/auth"
 	"github.com/liteoj/liteoj/backend/internal/config"
+	"github.com/liteoj/liteoj/backend/internal/control"
 	"github.com/liteoj/liteoj/backend/internal/middleware"
 	"github.com/liteoj/liteoj/backend/internal/models"
 )
@@ -93,13 +94,14 @@ func newAuthTestRouter(db *gorm.DB) *gin.Engine {
 		JWTSecret:   "test-secret",
 		JWTTTLHours: 1,
 	}
-	authH := &AuthHandler{DB: db, C: cfg}
+	live := &control.LiveConfig{Runtime: config.NewRuntimeConfig(cfg)}
+	authH := &AuthHandler{DB: db, Live: live}
 
 	r := gin.New()
 	r.POST("/api/auth/login", authH.Login)
 
 	authed := r.Group("/api")
-	authed.Use(middleware.Auth(cfg, db))
+	authed.Use(middleware.Auth(live, db))
 	authed.GET("/me", authH.Me)
 	authed.POST("/me/password", authH.ChangePassword)
 	return r

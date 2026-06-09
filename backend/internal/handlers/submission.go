@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/liteoj/liteoj/backend/internal/config"
+	"github.com/liteoj/liteoj/backend/internal/control"
 	"github.com/liteoj/liteoj/backend/internal/events"
 	"github.com/liteoj/liteoj/backend/internal/i18n"
 	"github.com/liteoj/liteoj/backend/internal/middleware"
@@ -19,7 +19,7 @@ import (
 
 type SubmissionHandler struct {
 	DB     *gorm.DB
-	C      *config.Config
+	Live   *control.LiveConfig
 	Queue  *judge.Queue
 	Broker *events.Broker
 }
@@ -47,7 +47,8 @@ func (h *SubmissionHandler) Submit(c *gin.Context) {
 		return
 	}
 	allowed := false
-	for _, l := range h.C.JudgeLangs {
+	cfg := h.Live.Current()
+	for _, l := range cfg.JudgeLangs {
 		if l == req.Language {
 			allowed = true
 			break
@@ -63,34 +64,39 @@ func (h *SubmissionHandler) Submit(c *gin.Context) {
 	// restriction; unknown problemset_id = silently ignore (student can't
 	// forge a pass by pointing at a non-existent set).
 	if req.ProblemSetID != nil && *req.ProblemSetID > 0 {
-		var ps models.ProblemSet
-		if err := h.DB.First(&ps, *req.ProblemSetID).Error; err == nil {
-			// 必须是成员（或 admin）才能以题单上下文提交。
-			if middleware.CurrentRole(c) != models.RoleAdmin {
-				var n int64
-				h.DB.Model(&models.ProblemSetMember{}).
-					Where("problem_set_id = ? AND user_id = ?", *req.ProblemSetID, middleware.CurrentUserID(c)).
-					Count(&n)
-				if n == 0 {
-					c.JSON(http.StatusForbidden, gin.H{"error": i18n.ErrForbidden})
-					return
+		uid := middleware.CurrentUserID(c)
+		isAdmin := middleware.CurrentRole(c) == models.RoleAdmin
+		access, err := loadProblemSetAccess(h.DB, *req.ProblemSetID, uid, isAdmin, &p.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if !access.Found {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errProblemsetInvalid})
+			return
+		}
+		if !access.ProblemLinked {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errProblemNotInSet})
+			return
+		}
+		if !access.ContextApplies() {
+			c.JSON(http.StatusForbidden, gin.H{"error": i18n.ErrForbidden})
+			return
+		}
+		allowedLangs := decodeAllowedLangs(access.ProblemSet.AllowedLangsJSON)
+		if len(allowedLangs) > 0 {
+			ok := false
+			for _, l := range allowedLangs {
+				if l == req.Language {
+					ok = true
+					break
 				}
 			}
-			allowedLangs := decodeAllowedLangs(ps.AllowedLangsJSON)
-			if len(allowedLangs) > 0 {
-				ok := false
-				for _, l := range allowedLangs {
-					if l == req.Language {
-						ok = true
-						break
-					}
-				}
-				if !ok {
-					c.JSON(http.StatusBadRequest, gin.H{
-						"error": i18n.ErrProblemsetLangBlock + req.Language,
-					})
-					return
-				}
+			if !ok {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": i18n.ErrProblemsetLangBlock + req.Language,
+				})
+				return
 			}
 		}
 	}
@@ -124,11 +130,11 @@ func (h *SubmissionHandler) Submit(c *gin.Context) {
 	}
 	cpu := p.TimeLimitMS
 	if cpu == 0 {
-		cpu = h.C.JudgeDefaultCPU
+		cpu = cfg.JudgeDefaultCPU
 	}
 	mem := p.MemoryLimitMB
 	if mem == 0 {
-		mem = h.C.JudgeDefaultMem
+		mem = cfg.JudgeDefaultMem
 	}
 	h.Queue.Enqueue(sub, tcs, cpu, mem)
 
@@ -151,28 +157,35 @@ func (h *SubmissionHandler) Submit(c *gin.Context) {
 }
 
 func (h *SubmissionHandler) enforceSubmitRateLimit(userID uint, now time.Time) error {
-	if h == nil || h.DB == nil || h.C == nil || h.C.SubmitLimitPerMinute <= 0 || userID == 0 {
+	if h == nil || h.DB == nil || h.Live == nil || userID == 0 {
 		return nil
 	}
-	cutoff := now.Add(-time.Minute)
-	var recent int64
-	if err := h.DB.Model(&models.Submission{}).
-		Where("user_id = ? AND created_at >= ?", userID, cutoff).
-		Count(&recent).Error; err != nil {
+	cfg := h.Live.Current()
+	if cfg == nil || cfg.SubmitIntervalSeconds <= 0 {
+		return nil
+	}
+	var latest models.Submission
+	if err := h.DB.
+		Where("user_id = ?", userID).
+		Order("created_at DESC, id DESC").
+		First(&latest).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
 		return err
 	}
-	if recent >= int64(h.C.SubmitLimitPerMinute) {
-		return rateLimitError{limit: h.C.SubmitLimitPerMinute}
+	if now.Sub(latest.CreatedAt) < time.Duration(cfg.SubmitIntervalSeconds)*time.Second {
+		return rateLimitError{intervalSeconds: cfg.SubmitIntervalSeconds}
 	}
 	return nil
 }
 
 type rateLimitError struct {
-	limit int
+	intervalSeconds int
 }
 
 func (e rateLimitError) Error() string {
-	return i18n.ErrSubmitRateLimited(e.limit)
+	return i18n.ErrSubmitRateLimited(e.intervalSeconds)
 }
 
 // List returns a paginated submission list. All authenticated users see every
@@ -323,15 +336,9 @@ func (h *SubmissionHandler) Detail(c *gin.Context) {
 		Where("user_id = ? AND problem_id = ? AND language = ? AND id < ?",
 			s.UserID, s.ProblemID, s.Language, s.ID).
 		Count(&prevCount)
-	// ai_disabled：该提交所属题单禁用了 AI 解析时为 true，前端据此隐藏按钮；
-	// 同时 Analyze 端点也会二次校验，防止客户端直接调 API 绕过。
-	aiDisabled := false
-	if s.ProblemSetID != nil && *s.ProblemSetID > 0 {
-		var ps models.ProblemSet
-		if err := h.DB.Select("disable_ai").First(&ps, *s.ProblemSetID).Error; err == nil {
-			aiDisabled = ps.DisableAI
-		}
-	}
+	// ai_disabled：学生端默认关闭；只有这条提交属于显式启用 AI 的题单时才为
+	// false。Analyze/Optimize 端点会二次校验，防止客户端直接调 API 绕过。
+	aiDisabled := !loadStudentFeatureFlags(h.DB, s.UserID, isAdmin, s.ProblemSetID, &s.ProblemID).AI
 	type detailResp struct {
 		models.Submission
 		HasPrev    bool `json:"has_prev"`

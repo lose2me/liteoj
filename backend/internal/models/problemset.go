@@ -14,13 +14,18 @@ type ProblemSet struct {
 	// 列表过滤、详情 404、Join 直接 404；admin 不受影响。默认 true，老数据
 	// AutoMigrate 新列会填 default。
 	Visible bool `gorm:"default:true;index:idx_problem_sets_visible" json:"visible"`
-	// 题单级权限开关。进入题单上下文读题或提交时生效；独立题目页不受影响。
-	DisableIdea     bool      `gorm:"default:false" json:"disable_idea"`
-	DisableSolution bool      `gorm:"default:false" json:"disable_solution"`
-	DisableAI       bool      `gorm:"default:false" json:"disable_ai"`
-	CreatedBy       uint      `json:"created_by"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	// 学生端白名单开关。学生在独立题目页默认看不到思路 / 题解 / AI，
+	// 只有进入显式启用这些能力的题单上下文时才开放。底层沿用历史列名
+	// disable_*，这样旧数据会自然“反转”为白名单语义，无需额外迁移。
+	EnableIdea     bool `gorm:"column:disable_idea;default:false" json:"enable_idea"`
+	EnableSolution bool `gorm:"column:disable_solution;default:false" json:"enable_solution"`
+	EnableAI       bool `gorm:"column:disable_ai;default:false" json:"enable_ai"`
+	// EnableBonus 控制题单是否启用“每日加分”功能。关闭时学生侧不展示加分列，
+	// 后台也不允许维护该题单的每日分数表。默认 false。
+	EnableBonus bool      `gorm:"default:false;index:idx_problem_sets_bonus" json:"enable_bonus"`
+	CreatedBy   uint      `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type ProblemSetItem struct {
@@ -53,4 +58,19 @@ type ProblemSetBan struct {
 	UserID   uint      `gorm:"index:idx_ps_bans_user;uniqueIndex:uniq_ps_ban,priority:2;not null" json:"user_id"`
 	BannedAt time.Time `json:"banned_at"`
 	BannedBy uint      `json:"banned_by,omitempty"`
+}
+
+// ProblemSetDailyBonus 是题单的“每日一张表”加分记录。每行表示某个学生在某天
+// 于该题单下获得的分数；(problem_set_id, user_id, score_date) 唯一。
+// score_date 使用 YYYY-MM-DD 字符串，避免时区/数据库 date 类型差异。
+type ProblemSetDailyBonus struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	ProblemSetID uint      `gorm:"index:idx_ps_bonus_ps_date,priority:1;uniqueIndex:uniq_ps_bonus,priority:1;not null" json:"problemset_id"`
+	UserID       uint      `gorm:"index:idx_ps_bonus_user;uniqueIndex:uniq_ps_bonus,priority:2;not null" json:"user_id"`
+	ScoreDate    string    `gorm:"size:10;index:idx_ps_bonus_ps_date,priority:2;uniqueIndex:uniq_ps_bonus,priority:3;not null" json:"score_date"`
+	Score        int       `gorm:"default:0;not null" json:"score"`
+	CreatedBy    uint      `json:"created_by,omitempty"`
+	UpdatedBy    uint      `json:"updated_by,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }

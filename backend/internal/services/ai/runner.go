@@ -270,6 +270,25 @@ func (r *Runner) execute(ctx context.Context, j Job) (any, string) {
 		}
 		return map[string]string{"solution_md": text}, ""
 
+	case models.AITaskKindGenTestcases:
+		rows, prompt, raw, err := r.prompts.GenTestcases(ctx, j.Raw)
+		r.queue.SetPrompt(j.TaskID, j.TaskStartedAt, prompt)
+		r.queue.SetOutput(j.TaskID, j.TaskStartedAt, raw)
+		if err != nil {
+			return nil, err.Error()
+		}
+		added := 0
+		if j.ProblemID > 0 && len(rows) > 0 {
+			added = r.appendMissingProblemTestcases(j, rows)
+		}
+		out := map[string]any{
+			"testcases": rows,
+		}
+		if added > 0 {
+			out["testcases_added"] = added
+		}
+		return out, ""
+
 	case models.AITaskKindGenAll:
 		res, prompt, raw, err := r.prompts.GenAll(ctx, j.Raw)
 		if err != nil {
@@ -516,9 +535,16 @@ func kindTimeout(kind string) time.Duration {
 		return 180 * time.Second
 	case models.AITaskKindGenDesc, models.AITaskKindGenExplain:
 		return 120 * time.Second
-	case models.AITaskKindGenIdea:
+	case models.AITaskKindGenIdea, models.AITaskKindGenTestcases:
 		return 90 * time.Second
 	default:
 		return 60 * time.Second
 	}
+}
+
+func (r *Runner) SetMaxWait(d time.Duration) {
+	if r == nil {
+		return
+	}
+	r.maxWait = d
 }

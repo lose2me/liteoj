@@ -48,13 +48,10 @@ func (h *AIHandler) Analyze(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": i18n.ErrAIAcNoAnalyze})
 		return
 	}
-	// 题单维度的 AI 禁用：如果该提交挂在某个禁用 AI 的题单里，直接拒绝。
-	if sub.ProblemSetID != nil && *sub.ProblemSetID > 0 {
-		var ps models.ProblemSet
-		if err := h.DB.Select("disable_ai").First(&ps, *sub.ProblemSetID).Error; err == nil && ps.DisableAI {
-			c.JSON(http.StatusForbidden, gin.H{"error": i18n.ErrForbidden})
-			return
-		}
+	// 学生端 AI 默认关闭：只有进入显式启用 AI 的题单上下文才放行。
+	if !isAdmin && !loadStudentFeatureFlags(h.DB, uid, false, sub.ProblemSetID, &sub.ProblemID).AI {
+		c.JSON(http.StatusForbidden, gin.H{"error": i18n.ErrForbidden})
+		return
 	}
 	if sub.AIExplanation != "" {
 		if isAdmin && isLegacyAnalyzeEnvelope(sub.AIExplanation) {
@@ -108,7 +105,7 @@ func (h *AIHandler) Analyze(c *gin.Context) {
 
 // startAuthoringTask is the shared accept-and-enqueue path for every admin
 // problem-authoring flow (tag / gen_title / gen_desc / gen_idea / gen_explain
-// / gen_all). It validates the body, records a running AITask row, and hands
+// / gen_testcases / gen_all). It validates the body, records a running AITask row, and hands
 // the job to the Runner. The HTTP response is always 202 + task_id — results
 // are delivered later via `ai:task:done` and fetched via GET /admin/ai/tasks/:id.
 func (h *AIHandler) startAuthoringTask(c *gin.Context, kind string) {
@@ -158,13 +155,10 @@ func (h *AIHandler) Optimize(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": i18n.ErrAIOptNonAC})
 		return
 	}
-	// 题单维度的 AI 禁用：如果该提交挂在某个禁用 AI 的题单里，直接拒绝。
-	if sub.ProblemSetID != nil && *sub.ProblemSetID > 0 {
-		var ps models.ProblemSet
-		if err := h.DB.Select("disable_ai").First(&ps, *sub.ProblemSetID).Error; err == nil && ps.DisableAI {
-			c.JSON(http.StatusForbidden, gin.H{"error": i18n.ErrForbidden})
-			return
-		}
+	// 学生端 AI 默认关闭：只有进入显式启用 AI 的题单上下文才放行。
+	if middleware.CurrentRole(c) != models.RoleAdmin && !loadStudentFeatureFlags(h.DB, uid, false, sub.ProblemSetID, &sub.ProblemID).AI {
+		c.JSON(http.StatusForbidden, gin.H{"error": i18n.ErrForbidden})
+		return
 	}
 	if sub.AIExplanation != "" {
 		c.JSON(http.StatusOK, gin.H{"explanation": sub.AIExplanation, "cached": true})
@@ -196,6 +190,9 @@ func (h *AIHandler) AIGenDesc(c *gin.Context)  { h.startAuthoringTask(c, models.
 func (h *AIHandler) AIGenIdea(c *gin.Context)  { h.startAuthoringTask(c, models.AITaskKindGenIdea) }
 func (h *AIHandler) AIGenExplain(c *gin.Context) {
 	h.startAuthoringTask(c, models.AITaskKindGenExplain)
+}
+func (h *AIHandler) AIGenTestcases(c *gin.Context) {
+	h.startAuthoringTask(c, models.AITaskKindGenTestcases)
 }
 func (h *AIHandler) AIGenAll(c *gin.Context) { h.startAuthoringTask(c, models.AITaskKindGenAll) }
 

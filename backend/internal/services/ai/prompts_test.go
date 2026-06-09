@@ -194,3 +194,43 @@ func TestGenAll_RetriesOnceOnInvalidJSON(t *testing.T) {
 		t.Fatalf("broken output should appear exactly once in retry audit, got: %s", prompt)
 	}
 }
+
+func TestGenTestcases_NormalizesAndDeduplicates(t *testing.T) {
+	payload := map[string]any{
+		"testcases": []map[string]string{
+			{"input": "", "expected_output": "Hello World\n"},
+			{"input": "1 2\r\n", "expected_output": "3\r\n"},
+			{"input": "1 2\n", "expected_output": "3"},
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeChatResponse(t, w, string(body))
+	}))
+	defer srv.Close()
+
+	p := NewPrompts(&config.Config{
+		AIEnabled:            true,
+		BifrostBaseURL:       srv.URL,
+		BifrostAPIKey:        "test",
+		BifrostModel:         "test",
+		AIPromptGenTestcases: "prompt",
+	}, &Client{BaseURL: srv.URL, APIKey: "test", Model: "test", HTTP: &http.Client{}})
+
+	rows, _, _, err := p.GenTestcases(context.Background(), "raw")
+	if err != nil {
+		t.Fatalf("GenTestcases: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 normalized testcases, got %#v", rows)
+	}
+	if rows[0].ExpectedOutput != "Hello World" {
+		t.Fatalf("expected trimmed output, got %#v", rows[0])
+	}
+	if rows[1].Input != "1 2" || rows[1].ExpectedOutput != "3" {
+		t.Fatalf("expected deduplicated normalized testcase, got %#v", rows[1])
+	}
+}

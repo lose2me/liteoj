@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/liteoj/liteoj/backend/internal/cache"
 	"github.com/liteoj/liteoj/backend/internal/config"
+	"github.com/liteoj/liteoj/backend/internal/control"
 	"github.com/liteoj/liteoj/backend/internal/db"
 	"github.com/liteoj/liteoj/backend/internal/events"
 	"github.com/liteoj/liteoj/backend/internal/handlers"
@@ -67,12 +69,13 @@ func main() {
 	aiQueue := ai.NewQueue(gdb, broker)
 	aiRunner := ai.NewRunner(gdb, aiQueue, aiPrompts, cfg.AIQueueWorkers, cfg.AIQueueCap,
 		time.Duration(cfg.AIMaxWaitSeconds)*time.Second)
+	live := control.NewLiveConfig(cfg, judgeClient, aiClient, aiRunner)
 
-	authH := &handlers.AuthHandler{DB: gdb, C: cfg}
-	probH := &handlers.ProblemHandler{DB: gdb, C: cfg, Cache: appCache}
-	setH := &handlers.ProblemSetHandler{DB: gdb, C: cfg, Broker: broker}
-	subH := &handlers.SubmissionHandler{DB: gdb, C: cfg, Queue: queue, Broker: broker}
-	adminH := &handlers.AdminHandler{DB: gdb, C: cfg, Cache: appCache, Broker: broker}
+	authH := &handlers.AuthHandler{DB: gdb, Live: live}
+	probH := &handlers.ProblemHandler{DB: gdb, Live: live, Cache: appCache}
+	setH := &handlers.ProblemSetHandler{DB: gdb, Live: live, Broker: broker}
+	subH := &handlers.SubmissionHandler{DB: gdb, Live: live, Queue: queue, Broker: broker}
+	adminH := &handlers.AdminHandler{DB: gdb, Live: live, Cache: appCache, Broker: broker, Queue: queue}
 	tagH := &handlers.TagHandler{DB: gdb, Cache: appCache}
 	aiH := &handlers.AIHandler{DB: gdb, Queue: aiQueue, Runner: aiRunner}
 	statsH := &handlers.StatsHandler{DB: gdb}
@@ -92,18 +95,17 @@ func main() {
 		api.GET("/events/stream", eventsH.Stream)
 		// Public home page markdown — 未登录首页渲染源。
 		api.GET("/home", homeH.Get)
-		// Public browse: anonymous visitors can see the problem catalog and tag
-		// dictionary so the landing page (/problems) renders without login.
-		// Anything that reveals user-specific state (my_status, submissions,
-		// problemsets) stays behind Auth below.
-		// 用 OptionalAuth 是为了让"已登录用户浏览 /problems"时 my_status 能
-		// 正确填充（没有 OptionalAuth 时 token 被丢弃，CurrentUserID=0 → 状态全空）。
-		api.GET("/problems", middleware.OptionalAuth(cfg, gdb), probH.List)
+		// Public browse: problem data still has a public list API because the
+		// admin console and problem-set picker depend on it. Anything that
+		// reveals user-specific state (my_status, submissions, problemsets)
+		// stays behind Auth below. OptionalAuth preserves my_status for logged-in
+		// callers without making the route private.
+		api.GET("/problems", middleware.OptionalAuth(live, gdb), probH.List)
 		api.GET("/tags", tagH.List)
 		api.POST("/auth/login", authH.Login)
 
 		authed := api.Group("")
-		authed.Use(middleware.Auth(cfg, gdb))
+		authed.Use(middleware.Auth(live, gdb))
 		{
 			authed.GET("/me", authH.Me)
 			authed.POST("/me/password", authH.ChangePassword)
@@ -115,6 +117,7 @@ func main() {
 
 			authed.GET("/problemsets", setH.List)
 			authed.GET("/problemsets/:id", setH.Detail)
+			authed.GET("/problemsets/:id/bonus", setH.ListDailyBonus)
 			authed.GET("/problemsets/:id/ranking", rankH.Problemset)
 			authed.POST("/problemsets/:id/join", setH.Join)
 
@@ -131,6 +134,7 @@ func main() {
 			{
 				admin.GET("/stats", adminStatsH.Overview)
 				admin.GET("/online", adminStatsH.OnlineUsers)
+				admin.GET("/settings", adminH.GetSettings)
 				admin.GET("/ai/tasks", aiH.ListTasks)
 				admin.GET("/ai/tasks/:id", aiH.GetTask)
 
@@ -141,7 +145,9 @@ func main() {
 				admin.POST("/users/bulk", adminH.BulkCreateUsers)
 				admin.GET("/users/:id/profile", adminH.UserProfile)
 				admin.PUT("/home", adminH.UpdateHome)
+				admin.PUT("/settings", adminH.UpdateSettings)
 				admin.POST("/reset-data", adminH.ResetData)
+				admin.POST("/submissions/resume-pending", adminH.ResumePendingSubmissions)
 
 				admin.POST("/problems", adminH.CreateProblem)
 				admin.PUT("/problems/:id", adminH.UpdateProblem)
@@ -151,6 +157,7 @@ func main() {
 				admin.POST("/problems/:id/ai-gen-desc", aiH.AIGenDesc)
 				admin.POST("/problems/:id/ai-gen-idea", aiH.AIGenIdea)
 				admin.POST("/problems/:id/ai-gen-explain", aiH.AIGenExplain)
+				admin.POST("/problems/:id/ai-gen-testcases", aiH.AIGenTestcases)
 				admin.POST("/problems/:id/ai-gen-all", aiH.AIGenAll)
 				admin.GET("/problems/:id/ai-running", aiH.RunningForProblem)
 
@@ -169,6 +176,8 @@ func main() {
 				admin.DELETE("/problemsets/:id/members/:uid", adminH.RemoveProblemSetMember)
 				admin.GET("/problemsets/:id/bans", adminH.ListProblemSetBans)
 				admin.DELETE("/problemsets/:id/bans/:uid", adminH.UnbanProblemSetMember)
+				admin.GET("/problemsets/:id/bonus", adminH.ListProblemSetDailyBonus)
+				admin.PUT("/problemsets/:id/bonus", adminH.SaveProblemSetDailyBonus)
 
 				admin.POST("/taggroups", tagH.CreateGroup)
 				admin.PUT("/taggroups/:id", tagH.UpdateGroup)
@@ -182,9 +191,12 @@ func main() {
 
 	web.Register(r)
 
-	addr := ":" + cfg.AppPort
-	log.Printf("LiteOJ listening on %s (mode=%s, db=%s)", addr, cfg.AppMode, cfg.DBDriver)
-	if err := r.Run(addr); err != nil {
+	addr := ":" + live.Current().AppPort
+	srv := &http.Server{}
+	srv.Addr = addr
+	srv.Handler = r
+	log.Printf("LiteOJ listening on %s (mode=%s, db=%s)", addr, live.Current().AppMode, live.Current().DBDriver)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("listen: %v", err)
 	}
 }

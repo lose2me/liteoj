@@ -26,6 +26,7 @@ const cases = computed<any[]>(() => {
 
 // AC 已通过 → 不能走错因分析；非 AC 且非 PENDING → 不能走优化建议。
 // 两个按钮互斥，同一个 ai_explanation 字段两者共用（由 verdict 区分语义）。
+// ai_disabled=true 表示学生当前上下文未开放 AI（独立页默认关闭，题单需显式启用）。
 const canAnalyze = computed(() =>
   sub.value
   && sub.value.verdict !== 'AC'
@@ -130,6 +131,11 @@ const optimize = () => runAI('optimize')
 
 const gotoDiffPrev = () =>
   router.push(`/submissions/${route.params.id}/diff/0`)
+
+const gotoProblem = () => {
+  const query = sub.value?.problemset_id ? { problemset: String(sub.value.problemset_id) } : undefined
+  router.push({ path: `/problems/${sub.value.problem_id}`, query })
+}
 </script>
 
 <template>
@@ -148,7 +154,7 @@ const gotoDiffPrev = () =>
     </NDescriptions>
 
     <NSpace class="mt-3" align="center">
-      <NButton @click="router.push(`/problems/${sub.problem_id}`)">
+      <NButton @click="gotoProblem">
         {{ t.submission.gotoProblem }}
       </NButton>
       <NButton v-if="canAnalyze" :loading="aiBusy" type="primary" @click="analyze">{{ t.submission.aiAnalyze }}</NButton>

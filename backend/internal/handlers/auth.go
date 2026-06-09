@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/liteoj/liteoj/backend/internal/auth"
-	"github.com/liteoj/liteoj/backend/internal/config"
+	"github.com/liteoj/liteoj/backend/internal/control"
 	"github.com/liteoj/liteoj/backend/internal/i18n"
 	"github.com/liteoj/liteoj/backend/internal/middleware"
 	"github.com/liteoj/liteoj/backend/internal/models"
@@ -15,7 +15,7 @@ import (
 
 type AuthHandler struct {
 	DB *gorm.DB
-	C  *config.Config
+	Live *control.LiveConfig
 }
 
 type loginReq struct {
@@ -52,7 +52,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.ErrIssueToken})
 		return
 	}
-	tok, err := auth.Issue(h.C.JWTSecret, h.C.JWTTTL(), &u)
+	cfg := h.Live.Current()
+	tok, err := auth.Issue(cfg.JWTSecret, cfg.JWTTTL(), &u)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.ErrIssueToken})
 		return

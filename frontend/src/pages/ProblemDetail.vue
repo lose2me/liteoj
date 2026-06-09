@@ -20,11 +20,11 @@ const code = ref('')
 const submitting = ref(false)
 const result = ref<any>(null)
 const pollTimer = ref<number | null>(null)
-// 题单上下文下，后端返回当前题单是否禁用思路/题解/AI 解析。前端在标题栏
-// 渲染对应标签告知学生"这个 tab 为什么不见了"——比默默隐藏更友好。
+// 学生端默认关闭思路 / 题解 / AI；题单显式启用时才开放。前端在标题栏渲染
+// 对应标签告知学生"为什么这里没有"——比默默隐藏更友好。
 const restrictions = ref({ idea: false, solution: false, ai: false })
 // 上次 AI 结果：后端按上下文回传——独立页取 problem_set_id IS NULL 的提交，
-// 题单页取 problem_set_id=当前题单 的提交。题单禁用 AI 时后端不返回；这里
+// 题单页取 problem_set_id=当前题单 的提交。学生端未开放 AI 时后端不返回；这里
 // 再以 type 字段区分"上一次解析"（非 AC）与"上一次优化"（AC）。
 const myLatestAI = ref<{ submission_id: number; verdict: string; explanation: string; type: 'analyze' | 'optimize' } | null>(null)
 const detailTab = ref<'desc' | 'idea' | 'solution' | 'ai'>('desc')
@@ -124,7 +124,7 @@ const startPoll = (submissionID: number) => {
 // 本次提交结果区的 AI 按钮条件 —— 两套对称：
 //   canAnalyze：判完非 AC & 未生成 & 未被拒 → "AI 解析"
 //   canOptimize：判完 AC              & 未生成          → "AI 优化"
-// 两者都要求题单未禁用 AI（ai_disabled）。
+// 两者都要求当前上下文开放 AI（ai_disabled=false）。
 const canAnalyze = computed(() =>
   result.value
   && result.value.submission_id
@@ -271,13 +271,13 @@ onUnmounted(() => {
         <NTag v-if="psid" type="warning" size="small">
           {{ t.problem.langLimitedInSet(psid) }}
         </NTag>
-        <NTag v-if="psid && restrictions.idea" type="warning" size="small">
+        <NTag v-if="restrictions.idea" type="warning" size="small">
           {{ t.problem.disableIdeaTag }}
         </NTag>
-        <NTag v-if="psid && restrictions.solution" type="warning" size="small">
+        <NTag v-if="restrictions.solution" type="warning" size="small">
           {{ t.problem.disableSolutionTag }}
         </NTag>
-        <NTag v-if="psid && restrictions.ai" type="warning" size="small">
+        <NTag v-if="restrictions.ai" type="warning" size="small">
           {{ t.problem.disableAITag }}
         </NTag>
         <NTag>{{ problem.difficulty || t.problem.notRated }}</NTag>
@@ -305,7 +305,7 @@ onUnmounted(() => {
           <MarkdownView :content="problem.solution_md" />
         </NTabPane>
         <!-- 上一次 AI tab：只在当前上下文里呈现（独立页看独立提交、题单页
-             看该题单内提交；题单禁用 AI 时后端直接不返回 my_latest_ai）。
+             看该题单内提交；学生端未开放 AI 时后端直接不返回 my_latest_ai）。
              type 区分解析 / 优化，tab 标题和正文提示跟着走。 -->
         <NTabPane
           v-if="myLatestAI"
@@ -348,7 +348,7 @@ onUnmounted(() => {
           </div>
         </div>
         <!-- 判完后的 AI 入口：非 AC → AI 解析；AC → AI 优化；被拒则用灰
-             tag 展示原因；题单 disable_ai 时按钮都不出现。 -->
+             tag 展示原因；当前上下文未开放 AI 时按钮都不出现。 -->
         <NSpace v-if="canAnalyze || canOptimize || result.ai_rejected" class="mt-3" align="center">
           <NButton v-if="canAnalyze" :loading="aiBusy" type="primary" size="small" @click="analyze">
             {{ t.submission.aiAnalyze }}

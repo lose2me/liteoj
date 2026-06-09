@@ -108,9 +108,9 @@ func EnsureAuditScenarios(db *gorm.DB) error {
 	// 受限题单：三个 disable_* 开关全开，用于覆盖 ProblemDetail chip + AI 拒绝路径。
 	restricted := models.ProblemSet{
 		Title:           "受限题单",
-		DisableIdea:     true,
-		DisableSolution: true,
-		DisableAI:       true,
+		EnableIdea:      true,
+		EnableSolution:  true,
+		EnableAI:        true,
 		CreatedBy:       1,
 	}
 	if err := db.Create(&restricted).Error; err != nil {

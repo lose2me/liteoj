@@ -12,6 +12,7 @@ import (
 
 	"github.com/liteoj/liteoj/backend/internal/auth"
 	"github.com/liteoj/liteoj/backend/internal/config"
+	"github.com/liteoj/liteoj/backend/internal/control"
 	"github.com/liteoj/liteoj/backend/internal/middleware"
 	"github.com/liteoj/liteoj/backend/internal/models"
 )
@@ -120,13 +121,14 @@ func TestResetDataInvalidatesAllSessions(t *testing.T) {
 		t.Fatalf("issue user token: %v", err)
 	}
 
-	authH := &AuthHandler{DB: db, C: cfg}
-	adminH := &AdminHandler{DB: db, C: cfg}
+	live := &control.LiveConfig{Runtime: config.NewRuntimeConfig(cfg)}
+	authH := &AuthHandler{DB: db, Live: live}
+	adminH := &AdminHandler{DB: db, Live: live}
 	router := gin.New()
 	api := router.Group("/api")
 	api.POST("/auth/login", authH.Login)
 	authed := api.Group("")
-	authed.Use(middleware.Auth(cfg, db))
+	authed.Use(middleware.Auth(live, db))
 	authed.GET("/me", authH.Me)
 	adminGroup := authed.Group("/admin")
 	adminGroup.Use(middleware.AdminOnly())

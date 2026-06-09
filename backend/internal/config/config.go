@@ -38,9 +38,9 @@ type Config struct {
 	// 避免 queue_workers=1 + 长 TCP 超时造成后续提交被无限期堵。默认 120；
 	// 判题机通畅时几乎用不到这个上限。
 	JudgeMaxWaitSeconds int
-	// SubmitLimitPerMinute 限制单个用户每分钟最多成功创建多少条提交。
+	// SubmitIntervalSeconds 限制同一用户两次提交之间至少间隔多少秒。
 	// <= 0 表示不限制。
-	SubmitLimitPerMinute int
+	SubmitIntervalSeconds int
 
 	BifrostBaseURL string
 	BifrostAPIKey  string
@@ -60,11 +60,12 @@ type Config struct {
 	// the ProblemEdit "详细" field. Prompts must come from config.toml; the
 	// code ships no defaults so the admin owns the format/style/heading
 	// conventions end-to-end.
-	AIPromptGenTitle   string
-	AIPromptGenDesc    string
-	AIPromptGenIdea    string
-	AIPromptGenExplain string
-	AIPromptGenAll     string
+	AIPromptGenTitle     string
+	AIPromptGenDesc      string
+	AIPromptGenIdea      string
+	AIPromptGenExplain   string
+	AIPromptGenTestcases string
+	AIPromptGenAll       string
 
 	UploadDir string
 }
@@ -98,32 +99,33 @@ type tomlConfig struct {
 	} `toml:"admin_danger"`
 
 	Judge struct {
-		BaseURL              string   `toml:"base_url"`
-		Langs                []string `toml:"langs"`
-		DefaultCPUMS         int      `toml:"default_cpu_ms"`
-		DefaultMemMB         int      `toml:"default_mem_mb"`
-		QueueWorkers         int      `toml:"queue_workers"`
-		QueueCap             int      `toml:"queue_cap"`
-		MaxWaitSeconds       int      `toml:"max_wait_seconds"`
-		SubmitLimitPerMinute int      `toml:"submit_limit_per_minute"`
+		BaseURL               string   `toml:"base_url"`
+		Langs                 []string `toml:"langs"`
+		DefaultCPUMS          int      `toml:"default_cpu_ms"`
+		DefaultMemMB          int      `toml:"default_mem_mb"`
+		QueueWorkers          int      `toml:"queue_workers"`
+		QueueCap              int      `toml:"queue_cap"`
+		MaxWaitSeconds        int      `toml:"max_wait_seconds"`
+		SubmitIntervalSeconds int      `toml:"submit_interval_seconds"`
 	} `toml:"judge"`
 
 	AI struct {
-		Enabled           bool   `toml:"enabled"`
-		BifrostBaseURL    string `toml:"bifrost_base_url"`
-		BifrostAPIKey     string `toml:"bifrost_api_key"`
-		BifrostModel      string `toml:"bifrost_model"`
-		QueueWorkers      int    `toml:"queue_workers"`
-		QueueCap          int    `toml:"queue_cap"`
-		MaxWaitSeconds    int    `toml:"max_wait_seconds"`
-		PromptWrongAnswer string `toml:"prompt_wrong_answer"`
-		PromptOptimize    string `toml:"prompt_optimize"`
-		PromptTag         string `toml:"prompt_tag"`
-		PromptGenTitle    string `toml:"prompt_gen_title"`
-		PromptGenDesc     string `toml:"prompt_gen_desc"`
-		PromptGenIdea     string `toml:"prompt_gen_idea"`
-		PromptGenExplain  string `toml:"prompt_gen_explain"`
-		PromptGenAll      string `toml:"prompt_gen_all"`
+		Enabled            bool   `toml:"enabled"`
+		BifrostBaseURL     string `toml:"bifrost_base_url"`
+		BifrostAPIKey      string `toml:"bifrost_api_key"`
+		BifrostModel       string `toml:"bifrost_model"`
+		QueueWorkers       int    `toml:"queue_workers"`
+		QueueCap           int    `toml:"queue_cap"`
+		MaxWaitSeconds     int    `toml:"max_wait_seconds"`
+		PromptWrongAnswer  string `toml:"prompt_wrong_answer"`
+		PromptOptimize     string `toml:"prompt_optimize"`
+		PromptTag          string `toml:"prompt_tag"`
+		PromptGenTitle     string `toml:"prompt_gen_title"`
+		PromptGenDesc      string `toml:"prompt_gen_desc"`
+		PromptGenIdea      string `toml:"prompt_gen_idea"`
+		PromptGenExplain   string `toml:"prompt_gen_explain"`
+		PromptGenTestcases string `toml:"prompt_gen_testcases"`
+		PromptGenAll       string `toml:"prompt_gen_all"`
 	} `toml:"ai"`
 
 	Upload struct {
@@ -135,21 +137,36 @@ type tomlConfig struct {
 // for any missing keys. A missing file is not fatal.
 func Load() *Config {
 	path := resolveConfigPath()
+	cfg, err := LoadFromPath(path)
+	if err != nil {
+		log.Fatalf("config: parse %s: %v", path, err)
+	}
+	if path != "" {
+		log.Printf("config: loaded %s", path)
+	} else {
+		log.Printf("config: no config.toml found, using defaults")
+	}
+	return cfg
+}
+
+// LoadFromPath reads a config file and fills in defaults for any missing keys.
+// Empty path means "defaults only".
+func LoadFromPath(path string) (*Config, error) {
 	var t tomlConfig
 	if path != "" {
 		data, err := os.ReadFile(path)
 		if err == nil {
 			if err := toml.Unmarshal(data, &t); err != nil {
-				log.Fatalf("config: parse %s: %v", path, err)
+				return nil, err
 			}
-			log.Printf("config: loaded %s", path)
-		} else {
+		} else if !os.IsNotExist(err) {
 			log.Printf("config: %s unreadable (%v), using defaults", path, err)
 		}
-	} else {
-		log.Printf("config: no config.toml found, using defaults")
 	}
+	return buildConfig(t), nil
+}
 
+func buildConfig(t tomlConfig) *Config {
 	return &Config{
 		AppPort:                      or(t.App.Port, "8080"),
 		AppMode:                      or(t.App.Mode, "dev"),
@@ -168,7 +185,7 @@ func Load() *Config {
 		JudgeQueueWorkers:            orInt(t.Judge.QueueWorkers, 1),
 		JudgeQueueCap:                orInt(t.Judge.QueueCap, 256),
 		JudgeMaxWaitSeconds:          orInt(t.Judge.MaxWaitSeconds, 120),
-		SubmitLimitPerMinute:         nonNegativeInt(t.Judge.SubmitLimitPerMinute),
+		SubmitIntervalSeconds:        nonNegativeInt(t.Judge.SubmitIntervalSeconds),
 		BifrostBaseURL:               t.AI.BifrostBaseURL,
 		BifrostAPIKey:                t.AI.BifrostAPIKey,
 		BifrostModel:                 or(t.AI.BifrostModel, "deepseek-chat"),
@@ -178,16 +195,17 @@ func Load() *Config {
 		// 默认 180s：沿用旧 kindTimeout 里最长的 GenAll 预算。旧机型 / 短
 		// 推理只需要一个兜底上限；DeepSeek-V3 这类慢思考机型在 config.toml
 		// 里把它调到 600 即可。
-		AIMaxWaitSeconds:   orInt(t.AI.MaxWaitSeconds, 180),
-		AIPromptWA:         t.AI.PromptWrongAnswer,
-		AIPromptOpt:        t.AI.PromptOptimize,
-		AIPromptTag:        t.AI.PromptTag,
-		AIPromptGenTitle:   t.AI.PromptGenTitle,
-		AIPromptGenDesc:    t.AI.PromptGenDesc,
-		AIPromptGenIdea:    t.AI.PromptGenIdea,
-		AIPromptGenExplain: t.AI.PromptGenExplain,
-		AIPromptGenAll:     t.AI.PromptGenAll,
-		UploadDir:          or(t.Upload.Dir, "./data/uploads"),
+		AIMaxWaitSeconds:     orInt(t.AI.MaxWaitSeconds, 180),
+		AIPromptWA:           t.AI.PromptWrongAnswer,
+		AIPromptOpt:          t.AI.PromptOptimize,
+		AIPromptTag:          t.AI.PromptTag,
+		AIPromptGenTitle:     t.AI.PromptGenTitle,
+		AIPromptGenDesc:      t.AI.PromptGenDesc,
+		AIPromptGenIdea:      t.AI.PromptGenIdea,
+		AIPromptGenExplain:   t.AI.PromptGenExplain,
+		AIPromptGenTestcases: t.AI.PromptGenTestcases,
+		AIPromptGenAll:       t.AI.PromptGenAll,
+		UploadDir:            or(t.Upload.Dir, "./data/uploads"),
 	}
 }
 

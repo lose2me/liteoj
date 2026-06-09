@@ -1,49 +1,58 @@
 <script setup lang="ts">
-import { NLayout, NLayoutHeader, NLayoutSider, NLayoutContent, NMenu, NButton } from 'naive-ui'
-import type { MenuOption } from 'naive-ui'
-import { computed } from 'vue'
-import { RouterView, useRoute, useRouter } from 'vue-router'
-import { useUserStore } from '../stores/user'
-import ThemeToggleButton from './ThemeToggleButton.vue'
-import { t } from '../i18n'
+import {
+  NLayout,
+  NLayoutHeader,
+  NLayoutSider,
+  NLayoutContent,
+  NMenu,
+  NButton,
+} from "naive-ui";
+import type { MenuOption } from "naive-ui";
+import { computed } from "vue";
+import { RouterView, useRoute, useRouter } from "vue-router";
+import { useUserStore } from "../stores/user";
+import ThemeToggleButton from "./ThemeToggleButton.vue";
+import { t } from "../i18n";
 
-const user = useUserStore()
-const router = useRouter()
-const route = useRoute()
+const user = useUserStore();
+const router = useRouter();
+const route = useRoute();
 
 // Plain-text labels + @update:value navigation. Wrapping RouterLink inside
 // each option's label caused double-click dispatch (RouterLink + NMenu own
 // handler) which left the router stuck after visiting some pages. One
 // handler, one source of truth.
 const menuOptions: MenuOption[] = [
-  { label: t.adminDashboard.overview, key: '/admin' },
-  { label: t.adminDashboard.quickUsers, key: '/admin/users' },
-  { label: t.adminDashboard.quickTags, key: '/admin/tags' },
-  { label: t.adminDashboard.quickProblems, key: '/admin/problems' },
-  { label: t.adminDashboard.quickProblemsets, key: '/admin/problemsets' },
-  { label: t.adminDashboard.quickSubmissions, key: '/admin/submissions' },
-  { label: t.adminDashboard.quickAi, key: '/admin/ai' },
-]
+  { label: t.adminDashboard.overview, key: "/admin" },
+  { label: t.adminDashboard.quickSettings, key: "/admin/settings" },
+  { label: t.adminDashboard.quickUsers, key: "/admin/users" },
+  { label: t.adminDashboard.quickTags, key: "/admin/tags" },
+  { label: t.adminDashboard.quickProblems, key: "/admin/problems" },
+  { label: t.adminDashboard.quickProblemsets, key: "/admin/problemsets" },
+  { label: t.adminDashboard.quickSubmissions, key: "/admin/submissions" },
+  { label: t.adminDashboard.quickAi, key: "/admin/ai" },
+];
 
 const activeKey = computed(() => {
-  const p = route.path
-  if (p.startsWith('/admin/problemsets')) return '/admin/problemsets'
-  if (p.startsWith('/admin/problems')) return '/admin/problems'
-  if (p.startsWith('/admin/tags')) return '/admin/tags'
-  if (p.startsWith('/admin/users')) return '/admin/users'
-  if (p.startsWith('/admin/submissions')) return '/admin/submissions'
-  if (p.startsWith('/admin/ai')) return '/admin/ai'
-  return '/admin'
-})
+  const p = route.path;
+  if (p.startsWith("/admin/problemsets")) return "/admin/problemsets";
+  if (p.startsWith("/admin/problems")) return "/admin/problems";
+  if (p.startsWith("/admin/settings")) return "/admin/settings";
+  if (p.startsWith("/admin/tags")) return "/admin/tags";
+  if (p.startsWith("/admin/users")) return "/admin/users";
+  if (p.startsWith("/admin/submissions")) return "/admin/submissions";
+  if (p.startsWith("/admin/ai")) return "/admin/ai";
+  return "/admin";
+});
 
 const onMenuSelect = (key: string) => {
-  if (key !== route.path) router.push(key)
-}
+  if (key !== route.path) router.push(key);
+};
 
 const logout = () => {
-  user.logout()
-  router.replace('/')
-}
+  user.logout();
+  router.replace("/");
+};
 </script>
 
 <template>
@@ -58,7 +67,12 @@ const logout = () => {
           <span class="user-nick text-sm opacity-80">
             {{ user.user?.name || user.user?.username }}
           </span>
-          <NButton size="small" type="primary" ghost @click="router.push('/problems')">
+          <NButton
+            size="small"
+            type="primary"
+            ghost
+            @click="router.push('/problemsets')"
+          >
             {{ t.nav.backToFront }}
           </NButton>
           <NButton size="small" @click="logout">{{ t.nav.logout }}</NButton>
@@ -68,7 +82,12 @@ const logout = () => {
 
     <NLayout has-sider class="admin-body">
       <NLayoutSider bordered :width="220" :native-scrollbar="false">
-        <NMenu :options="menuOptions" :value="activeKey" :indent="18" @update:value="onMenuSelect" />
+        <NMenu
+          :options="menuOptions"
+          :value="activeKey"
+          :indent="18"
+          @update:value="onMenuSelect"
+        />
       </NLayoutSider>
       <!-- native-scrollbar=false 才会用 NScrollbar 包裹内容，去掉 Dashboard /
            Tags 等长页面在右侧出现的浏览器原生灰色滚动条，视觉上和学生端一致。 -->

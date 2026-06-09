@@ -20,6 +20,8 @@ type Queue struct {
 	broker     *events.Broker
 	ch         chan job
 	wg         sync.WaitGroup
+	mu         sync.Mutex
+	inFlight   map[uint]struct{}
 	jobTimeout time.Duration
 }
 
@@ -54,7 +56,7 @@ func NewQueue(db *gorm.DB, runner *Runner, broker *events.Broker, workers, cap i
 	}
 	q := &Queue{
 		runner: runner, db: db, broker: broker,
-		ch: make(chan job, cap), jobTimeout: jobTimeout,
+		ch: make(chan job, cap), inFlight: map[uint]struct{}{}, jobTimeout: jobTimeout,
 	}
 	for i := 0; i < workers; i++ {
 		q.wg.Add(1)
@@ -63,7 +65,17 @@ func NewQueue(db *gorm.DB, runner *Runner, broker *events.Broker, workers, cap i
 	return q
 }
 
-func (q *Queue) Enqueue(sub *models.Submission, tcs []models.Testcase, cpuMS, memMB int) {
+func (q *Queue) Enqueue(sub *models.Submission, tcs []models.Testcase, cpuMS, memMB int) bool {
+	if q == nil || sub == nil {
+		return false
+	}
+	q.mu.Lock()
+	if _, exists := q.inFlight[sub.ID]; exists {
+		q.mu.Unlock()
+		return false
+	}
+	q.inFlight[sub.ID] = struct{}{}
+	q.mu.Unlock()
 	q.ch <- job{
 		submissionID: sub.ID,
 		createdAt:    sub.CreatedAt,
@@ -76,6 +88,7 @@ func (q *Queue) Enqueue(sub *models.Submission, tcs []models.Testcase, cpuMS, me
 		cpuMS:        cpuMS,
 		memMB:        memMB,
 	}
+	return true
 }
 
 func (q *Queue) loop() {
@@ -86,6 +99,7 @@ func (q *Queue) loop() {
 }
 
 func (q *Queue) run(j job) {
+	defer q.finish(j.submissionID)
 	ctx, cancel := context.WithTimeout(context.Background(), q.jobTimeout)
 	defer cancel()
 	result, err := q.runner.Judge(ctx, RunnerInput{
@@ -113,6 +127,12 @@ func (q *Queue) run(j job) {
 		return
 	}
 	q.publishDone(j, result.Verdict, result.TimeMS, result.MemoryKB)
+}
+
+func (q *Queue) finish(submissionID uint) {
+	q.mu.Lock()
+	delete(q.inFlight, submissionID)
+	q.mu.Unlock()
 }
 
 // updateCurrent persists the final verdict only if the target row is still the
@@ -149,4 +169,11 @@ func (q *Queue) publishDone(j job, verdict string, timeMS, memKB int) {
 			"memory_used_kb": memKB,
 		},
 	})
+}
+
+func (q *Queue) SetJobTimeout(d time.Duration) {
+	if q == nil || d <= 0 {
+		return
+	}
+	q.jobTimeout = d
 }

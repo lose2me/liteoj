@@ -3,7 +3,6 @@ import { NCard, NGrid, NGridItem, NStatistic, NButton, NSpace, NDataTable, NModa
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { http } from '../../api/http'
-import MarkdownEditor from '../../components/MarkdownEditor.vue'
 import { t } from '../../i18n'
 import { useUserStore } from '../../stores/user'
 
@@ -27,26 +26,6 @@ const POLL_MS = 30000
 // 每秒好几条 /admin/stats，一般意味着浏览器还有一个打开的 /admin 标签页 →
 // 关掉其他标签或 Ctrl+F5；这段代码只能管好当前标签。
 let dashTimer: number | null = null
-
-// 首页 markdown 编辑态。load 时 GET /home 填充 homeContent；保存走 PUT
-// /admin/home，成功后后端 broadcast home:changed，学生端立即刷新。
-const homeContent = ref('')
-const homeSaving = ref(false)
-const loadHome = async () => {
-  const { data } = await http.get('/home')
-  homeContent.value = data.content || ''
-}
-const saveHome = async () => {
-  homeSaving.value = true
-  try {
-    await http.put('/admin/home', { content: homeContent.value })
-    msg.success(t.common.savedOk)
-  } catch (e: any) {
-    msg.error(e?.response?.data?.error || t.common.saveFailed)
-  } finally {
-    homeSaving.value = false
-  }
-}
 
 const openReset = () => {
   resetPassword.value = ''
@@ -116,7 +95,6 @@ onMounted(async () => {
     dashVisHandler = null
   }
   await load()
-  loadHome()
   startTimer()
   dashVisHandler = () => {
     if (document.visibilityState === 'hidden') stopTimer()
@@ -170,6 +148,7 @@ const columns = [
         <NButton @click="router.push('/admin/tags')">{{ t.adminDashboard.quickTags }}</NButton>
         <NButton @click="router.push('/admin/problems')">{{ t.adminDashboard.quickProblems }}</NButton>
         <NButton @click="router.push('/admin/problemsets')">{{ t.adminDashboard.quickProblemsets }}</NButton>
+        <NButton @click="router.push('/admin/settings')">{{ t.adminDashboard.quickSettings }}</NButton>
         <NButton @click="router.push('/admin/submissions')">{{ t.adminDashboard.quickSubmissions }}</NButton>
         <NButton @click="router.push('/admin/ai')">{{ t.adminDashboard.quickAi }}</NButton>
       </NSpace>
@@ -179,14 +158,6 @@ const columns = [
       <div v-if="!online.length" class="opacity-60 text-sm">{{ t.adminDashboard.noOnline }}</div>
       <NDataTable v-else :columns="columns" :data="online" :pagination="{ pageSize: 10 }" />
     </NCard>
-
-    <NCard class="mt-4" :title="t.adminDashboard.homeEditTitle">
-      <MarkdownEditor v-model="homeContent" height="420px" />
-      <NSpace class="mt-3">
-        <NButton type="primary" :loading="homeSaving" @click="saveHome">{{ t.common.save }}</NButton>
-      </NSpace>
-    </NCard>
-
     <NCard class="mt-4" :title="t.adminDashboard.dangerTitle">
       <div class="text-sm opacity-75">{{ t.adminDashboard.dangerHint }}</div>
       <NSpace class="mt-3">

@@ -89,6 +89,11 @@ const genAllOutputSuffix = "\n\n输出必须是一个 JSON 对象，且**只**�
 	"- `testcases` (array of objects, each object must contain `input` and `expected_output` as strings)\n" +
 	"JSON 字符串内的换行一律用 `\\n` 转义；JSON 对象外**严禁**任何额外文字、解释、前后缀、或 Markdown 代码块包裹。"
 
+const genTestcasesOutputSuffix = "\n\n输出必须是一个 JSON 对象，且**只**包含以下 1 个字段（键名逐字一致，不得新增额外键）：\n" +
+	"- `testcases` (array of objects, each object must contain `input` and `expected_output` as strings)\n" +
+	"仅提取题面里明确给出的样例；若某组样例无输入，则 `input` 必须是空字符串 `\"\"`；若题面没有样例，则返回 `{\"testcases\":[]}`。\n" +
+	"JSON 字符串内的换行一律用 `\\n` 转义；JSON 对象外**严禁**任何额外文字、解释、前后缀、或 Markdown 代码块包裹。"
+
 // AnalyzeWrongAnswer explains why a non-AC submission failed. Unlike the
 // authoring flows this one operates on the actual submission + problem, not
 // on raw-pasted content — it runs on the student submission detail page.
@@ -312,6 +317,32 @@ func (p *Prompts) GenExplain(ctx context.Context, raw string) (string, string, s
 	return p.singleTextGen(ctx, raw, p.Cfg.AIPromptGenExplain, "prompt_gen_explain")
 }
 
+func (p *Prompts) GenTestcases(ctx context.Context, raw string) ([]GeneratedTestcase, string, string, error) {
+	if err := p.ensureEnabled(); err != nil {
+		return nil, "", "", err
+	}
+	if err := p.ensurePrompt(p.Cfg.AIPromptGenTestcases, "prompt_gen_testcases"); err != nil {
+		return nil, "", "", err
+	}
+	if err := requireRaw(raw); err != nil {
+		return nil, "", "", err
+	}
+	messages := []Message{
+		{Role: "system", Content: p.Cfg.AIPromptGenTestcases + genTestcasesOutputSuffix},
+		{Role: "user", Content: raw},
+	}
+	prompt := formatMessages(messages)
+	out, rawBody, err := p.Client.Chat(ctx, messages)
+	if err != nil {
+		return nil, prompt, rawBody, err
+	}
+	rows, parseErr := parseGeneratedTestcasesOutput(out)
+	if parseErr != nil {
+		return nil, prompt, rawBody, parseErr
+	}
+	return rows, prompt, rawBody, nil
+}
+
 // GeneratedTestcase is the explicit sample data extracted from the raw
 // statement. `input` may be empty for output-only problems.
 type GeneratedTestcase struct {
@@ -510,6 +541,20 @@ func parseGenAllOutput(out string) (*GenAllResult, error) {
 	r.Description = normalizeGeneratedDescription(r.Description)
 	r.Testcases = normalizeGeneratedTestcases(r.Testcases)
 	return &r, nil
+}
+
+func parseGeneratedTestcasesOutput(out string) ([]GeneratedTestcase, error) {
+	jsonText := extractJSONObject(out)
+	if jsonText == "" {
+		return nil, errors.New(i18n.ErrAIOutputNotJSON(out))
+	}
+	var r struct {
+		Testcases []GeneratedTestcase `json:"testcases"`
+	}
+	if err := json.Unmarshal([]byte(jsonText), &r); err != nil {
+		return nil, errors.New(i18n.ErrAIOutputJSONParse(err))
+	}
+	return normalizeGeneratedTestcases(r.Testcases), nil
 }
 
 func genAllRetryInstruction(parseErr error) string {

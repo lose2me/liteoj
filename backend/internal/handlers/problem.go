@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/liteoj/liteoj/backend/internal/cache"
-	"github.com/liteoj/liteoj/backend/internal/config"
+	"github.com/liteoj/liteoj/backend/internal/control"
 	"github.com/liteoj/liteoj/backend/internal/db"
 	"github.com/liteoj/liteoj/backend/internal/i18n"
 	"github.com/liteoj/liteoj/backend/internal/middleware"
@@ -18,7 +18,7 @@ import (
 
 type ProblemHandler struct {
 	DB    *gorm.DB
-	C     *config.Config
+	Live  *control.LiveConfig
 	Cache *cache.Cache
 }
 
@@ -131,11 +131,12 @@ func (h *ProblemHandler) List(c *gin.Context) {
 		}
 	}
 
-	// 聚合对本页题目的限制：
-	// - 学生：仅统计 "visible + 当前用户已加入 + 至少一个 disable_* 为 true" 的题单；
-	// - admin：放宽为"任意题单（不论 visible / 是否加入）+ 至少一个 disable_*"，
-	//   用于后台题目管理页提示"这题在某题单里处于限制状态"。
-	// 结果按 problem_id 打 3 个布尔位：restricted_idea / solution / ai。
+	// 聚合对本页题目的题单特性：
+	// - 学生：仅统计 "visible + 当前用户已加入 + 至少一个 enable_* 为 true" 的题单；
+	// - admin：放宽为"任意题单（不论 visible / 是否加入）+ 至少一个 enable_*"，
+	//   用于后台题目管理页提示"这题在某题单里开放了学生端思路/题解/AI"。
+	// 底层列名仍是历史遗留的 disable_*；这里查询的是这些列当前承载的
+	// “显式启用”语义。
 	type restriction struct{ idea, solution, ai bool }
 	restrictions := map[uint]restriction{}
 	if len(items) > 0 {
@@ -223,55 +224,55 @@ func (h *ProblemHandler) Detail(c *gin.Context) {
 	// If opened in the context of a problem set, narrow the language choices
 	// to the intersection of the set's allow-list and the globally configured
 	// judge langs. Empty allow-list means "no restriction" (fall through to
-	// cfg.JudgeLangs). Direct access (no problemset_id) is never restricted —
-	// enforcement happens on submit, so this only shapes the UI.
-	// 题单上下文还承担 Disable{Idea,Solution,AI} 三个开关：通过置空 markdown
-	// 字段让前端已有的 v-if 分支自然隐藏相应 tab；同时把布尔值透出，前端据此
-	// 在标题行渲染"禁用思路/题解/AI"标签告知学生。
-	langs := h.C.JudgeLangs
-	disableIdea := false
-	disableSolution := false
-	disableAI := false
+	// cfg.JudgeLangs). Student-side思路 / 题解 / AI 默认关闭，只有进入显式
+	// 启用这些能力的题单上下文时才开放；admin 不受此限制。
+	cfg := h.Live.Current()
+	langs := cfg.JudgeLangs
+	uid := middleware.CurrentUserID(c)
+	isAdmin := middleware.CurrentRole(c) == models.RoleAdmin
+	disableIdea := !isAdmin
+	disableSolution := !isAdmin
+	disableAI := !isAdmin
 	if psid, _ := strconv.Atoi(c.Query("problemset_id")); psid > 0 {
-		var ps models.ProblemSet
-		if err := h.DB.First(&ps, psid).Error; err == nil {
-			allowed := decodeAllowedLangs(ps.AllowedLangsJSON)
+		access, err := loadProblemSetAccess(h.DB, uint(psid), uid, isAdmin, &p.ID)
+		if err == nil && access.Found && access.ProblemLinked {
+			allowed := decodeAllowedLangs(access.ProblemSet.AllowedLangsJSON)
 			if len(allowed) > 0 {
 				allowSet := make(map[string]bool, len(allowed))
 				for _, l := range allowed {
 					allowSet[l] = true
 				}
 				narrowed := make([]string, 0, len(allowed))
-				for _, l := range h.C.JudgeLangs {
+				for _, l := range cfg.JudgeLangs {
 					if allowSet[l] {
 						narrowed = append(narrowed, l)
 					}
 				}
 				langs = narrowed
 			}
-			if ps.DisableIdea {
-				p.SolutionIdeaMD = ""
-				disableIdea = true
-			}
-			if ps.DisableSolution {
-				p.SolutionMD = ""
-				disableSolution = true
-			}
-			disableAI = ps.DisableAI
+			flags := loadStudentFeatureFlags(h.DB, uid, isAdmin, &access.ProblemSet.ID, &p.ID)
+			disableIdea = !flags.Idea
+			disableSolution = !flags.Solution
+			disableAI = !flags.AI
 		}
+	}
+	if disableIdea {
+		p.SolutionIdeaMD = ""
+	}
+	if disableSolution {
+		p.SolutionMD = ""
 	}
 
 	// 上次 AI 痕迹：只在**当前上下文**里回忆。
 	//   - 独立页（无 problemset_id）：只取 problem_set_id IS NULL 的提交——
 	//     题单里做的 AI 不会泄漏到独立页。
 	//   - 题单页（有 problemset_id）：只取 problem_set_id = 该题单 的提交；
-	//     题单禁用 AI（disable_ai）时整段跳过。
+	//     题单未启用 AI 时整段跳过。
 	// 返回的 type 字段（'analyze' / 'optimize'）让前端区分标签"上一次解析"
 	// 还是"上一次优化"；AC 的 ai_explanation 是 OptimizeAC 产生的，否则是
 	// AnalyzeWrongAnswer 产生的。
 	var myLatestAI any
-	isAdmin := middleware.CurrentRole(c) == models.RoleAdmin
-	if uid := middleware.CurrentUserID(c); uid > 0 && !disableAI {
+	if uid > 0 && !disableAI {
 		type row struct {
 			ID            uint   `json:"submission_id"`
 			Verdict       string `json:"verdict"`

@@ -61,6 +61,8 @@ const (
 	ErrDangerRefuseClearRoot          = "拒绝清理根目录"
 )
 
+const ErrRestartUnsupported = "当前运行方式未启用后端重启能力"
+
 const DefaultHomeMarkdown = "# LiteOJ\n\n" +
 	"> 一个面向课堂的轻量 OJ，支持题库、题单、AI 解析。\n\n" +
 	"登录后可以开始刷题，或加入老师的题单。\n\n" +
@@ -82,6 +84,10 @@ func WarnDangerResetUploadCleanupFailed(detail string) string {
 
 func ErrDangerRefuseClearSuspiciousDir(abs string) string {
 	return fmt.Sprintf("拒绝清理可疑目录 %s", abs)
+}
+
+func ErrRestartFailed(err error) string {
+	return fmt.Sprintf("后端重启失败：%v", err)
 }
 
 func AITaskSubjectSubmission(id uint) string {
@@ -116,8 +122,8 @@ func ErrAIPromptMissing(key string) string {
 	return fmt.Sprintf("AI 提示词未配置：请在 config.toml 的 [ai] 下设置 %s", key)
 }
 
-func ErrSubmitRateLimited(limit int) string {
-	return fmt.Sprintf("提交过于频繁：每分钟最多 %d 次", limit)
+func ErrSubmitRateLimited(intervalSeconds int) string {
+	return fmt.Sprintf("提交过于频繁：两次提交至少间隔 %d 秒", intervalSeconds)
 }
 
 func ErrAISubmissionNotFound(err error) string {
